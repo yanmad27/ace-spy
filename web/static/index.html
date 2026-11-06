@@ -11,15 +11,18 @@
   <header>
     <h1>Ace Spy</h1>
     <span id="status" class="status offline">offline</span>
-    <input id="search" type="search" placeholder="Filter text…" autocomplete="off">
-    <label class="toggle"><input id="autoscroll" type="checkbox" checked> Auto-scroll</label>
+    <input id="search" type="search" placeholder="Lọc nội dung…" autocomplete="off">
+    <label class="toggle"><input id="autoscroll" type="checkbox" checked> Tự cuộn</label>
   </header>
-  <div class="layout">
-    <nav id="regions" aria-label="Regions"></nav>
-    <main>
-      <button id="older" type="button">Load older</button>
-      <ol id="feed"></ol>
-    </main>
+  <div class="panes">
+    <section class="pane" data-pane="0">
+      <div class="pane-head"><select aria-label="Vùng chat khung trái"></select><span class="count"></span></div>
+      <div class="scroll"><button class="older" type="button" hidden>Tải cũ hơn</button><ol class="feed"></ol></div>
+    </section>
+    <section class="pane" data-pane="1">
+      <div class="pane-head"><select aria-label="Vùng chat khung phải"></select><span class="count"></span></div>
+      <div class="scroll"><button class="older" type="button" hidden>Tải cũ hơn</button><ol class="feed"></ol></div>
+    </section>
   </div>
   <script src="app.js"></script>
 </body>

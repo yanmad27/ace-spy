@@ -14,6 +14,7 @@ import (
 	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
 
+	"github.com/yanmad27/ace-spy/internal/chatparse"
 	"github.com/yanmad27/ace-spy/internal/config"
 	"github.com/yanmad27/ace-spy/internal/gamewin"
 	"github.com/yanmad27/ace-spy/internal/pusher"
@@ -331,7 +332,13 @@ func (a *app) testSelected() {
 	if text == "" {
 		text = "(no text recognized — try a larger scale or a tighter area)"
 	}
-	walk.MsgBox(a.mw, fmt.Sprintf("OCR: %s (%d lines, %s)", r.Label, len(lines), time.Since(start).Round(time.Millisecond)), text, walk.MsgBoxOK)
+	method := "screen"
+	if wg, ok := g.(*screen.WindowGrabber); ok {
+		method = wg.Method()
+	}
+	msgs := chatparse.Messages(lines)
+	text = fmt.Sprintf("Raw OCR:\r\n%s\r\n\r\nMessages that will be pushed (%d):\r\n%s", text, len(msgs), strings.Join(msgs, "\r\n"))
+	walk.MsgBox(a.mw, fmt.Sprintf("OCR: %s (capture: %s, %s)", r.Label, method, time.Since(start).Round(time.Millisecond)), text, walk.MsgBoxOK)
 }
 
 func (a *app) toggle() {

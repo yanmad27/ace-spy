@@ -52,6 +52,10 @@ func TestResolveAndCaptureWindowByProcess(t *testing.T) {
 	if w != 128 || h != 64 || len(pix) != w*h*4 {
 		t.Fatalf("got %dx%d (%d bytes)", w, h, len(pix))
 	}
+	if g.Method() != "WGC" {
+		t.Fatalf("captured with %q, want Windows.Graphics.Capture", g.Method())
+	}
+	t.Logf("captured %dx%d via %s", w, h, g.Method())
 	nonBlack := false
 	for i := 0; i < len(pix); i += 4 {
 		if pix[i]|pix[i+1]|pix[i+2] != 0 {

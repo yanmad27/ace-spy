@@ -8,13 +8,19 @@ import (
 
 	"github.com/lxn/win"
 	"golang.org/x/sys/windows"
+
+	"github.com/yanmad27/ace-spy/internal/wgc"
 )
 
 var (
 	user32          = windows.NewLazySystemDLL("user32.dll")
 	procPrintWindow = user32.NewProc("PrintWindow")
 	procIsWindow    = user32.NewProc("IsWindow")
+
+	procDwmGetWindowAttribute = windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmGetWindowAttribute")
 )
+
+const dwmwaExtendedFrameBounds = 9
 
 func isWindow(h win.HWND) bool {
 	r, _, _ := procIsWindow.Call(uintptr(h))
@@ -124,16 +130,21 @@ func (g *Grabber) Grab() ([]byte, int, int, error) {
 
 func (g *Grabber) Close() { g.out.free() }
 
-// WindowGrabber captures a rectangle relative to a window's client area using
-// PrintWindow, so the game window may be covered by other windows or moved.
-// It falls back to a screen copy when PrintWindow yields a black image.
+// WindowGrabber captures a rectangle relative to a game window's client area from the
+// window itself (per process), never from the screen: other windows may cover it.
+// It uses Windows.Graphics.Capture, falling back to PrintWindow on old Windows.
 type WindowGrabber struct {
 	resolve    func() (win.HWND, error)
 	hwnd       win.HWND
 	x, y, w, h int32
+	cap        *wgc.Capturer
 	src        *dib
 	out        *dib
+	method     string
 }
+
+// Method reports how the last frame was captured: "WGC" or "PrintWindow".
+func (g *WindowGrabber) Method() string { return g.method }
 
 func NewWindowGrabber(resolve func() (win.HWND, error), x, y, w, h, scale int) (*WindowGrabber, error) {
 	if w <= 0 || h <= 0 || scale < 1 {
@@ -146,78 +157,116 @@ func NewWindowGrabber(resolve func() (win.HWND, error), x, y, w, h, scale int) (
 	return &WindowGrabber{resolve: resolve, x: int32(x), y: int32(y), w: int32(w), h: int32(h), out: out}, nil
 }
 
+func (g *WindowGrabber) attach() error {
+	if g.hwnd != 0 && isWindow(g.hwnd) {
+		return nil
+	}
+	g.detach()
+	h, err := g.resolve()
+	if err != nil {
+		return err
+	}
+	g.hwnd = h
+	if c, err := wgc.New(h); err == nil {
+		g.cap = c
+	}
+	return nil
+}
+
+func (g *WindowGrabber) detach() {
+	if g.cap != nil {
+		g.cap.Close()
+		g.cap = nil
+	}
+	g.hwnd = 0
+}
+
 func (g *WindowGrabber) Grab() ([]byte, int, int, error) {
-	if g.hwnd == 0 || !isWindow(g.hwnd) {
-		h, err := g.resolve()
-		if err != nil {
-			return nil, 0, 0, err
-		}
-		g.hwnd = h
+	if err := g.attach(); err != nil {
+		return nil, 0, 0, err
 	}
 	if win.IsIconic(g.hwnd) {
 		return nil, 0, 0, errors.New("game window is minimized")
 	}
 	var rc win.RECT
 	if !win.GetClientRect(g.hwnd, &rc) {
-		g.hwnd = 0
+		g.detach()
 		return nil, 0, 0, errors.New("game window closed")
 	}
-	cw, ch := rc.Right-rc.Left, rc.Bottom-rc.Top
-	if g.x+g.w > cw || g.y+g.h > ch {
+	if cw, ch := rc.Right-rc.Left, rc.Bottom-rc.Top; g.x+g.w > cw || g.y+g.h > ch {
 		return nil, 0, 0, fmt.Errorf("area is outside the game window (%dx%d); re-pick the area", cw, ch)
 	}
-	if g.src == nil || g.src.w != cw || g.src.h != ch {
-		g.src.free()
-		src, err := newDIB(cw, ch)
+	if g.src == nil {
+		src, err := newDIB(g.w, g.h)
 		if err != nil {
 			return nil, 0, 0, err
 		}
 		g.src = src
 	}
-
-	r, _, _ := procPrintWindow.Call(uintptr(g.hwnd), uintptr(g.src.dc), pwClientOnly|pwRenderFullContent)
-	if r == 0 || g.regionBlack() {
-		if err := g.copyFromScreen(); err != nil {
-			return nil, 0, 0, err
-		}
+	var err error
+	if g.cap != nil {
+		err = g.fromWGC()
+		g.method = "WGC"
+	} else {
+		err = g.fromPrintWindow()
+		g.method = "PrintWindow"
 	}
-	if !blit(g.out, g.src.dc, g.x, g.y, g.w, g.h) {
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if !blit(g.out, g.src.dc, 0, 0, g.w, g.h) {
 		return nil, 0, 0, fmt.Errorf("blit failed (error %d)", win.GetLastError())
 	}
 	return g.out.copyOpaque(), int(g.out.w), int(g.out.h), nil
 }
 
-func (g *WindowGrabber) regionBlack() bool {
-	px := g.src.pixels()
-	stride := int(g.src.w) * 4
-	for y := int(g.y); y < int(g.y+g.h); y += 2 {
-		row := px[y*stride+int(g.x)*4 : y*stride+int(g.x+g.w)*4]
-		for i := 0; i < len(row); i += 4 {
-			if row[i]|row[i+1]|row[i+2] != 0 {
-				return false
-			}
-		}
+// fromWGC copies the area out of the latest window frame. WGC frames cover the DWM
+// extended frame bounds, so the client-area offset inside the frame is computed.
+func (g *WindowGrabber) fromWGC() error {
+	frame, fw, fh, err := g.cap.Frame()
+	if err != nil {
+		return err
 	}
-	return true
-}
-
-func (g *WindowGrabber) copyFromScreen() error {
+	var bounds win.RECT
+	if r, _, _ := procDwmGetWindowAttribute.Call(uintptr(g.hwnd), dwmwaExtendedFrameBounds,
+		uintptr(unsafe.Pointer(&bounds)), unsafe.Sizeof(bounds)); int32(r) < 0 {
+		return errors.New("DwmGetWindowAttribute failed")
+	}
 	pt := win.POINT{}
 	if !win.ClientToScreen(g.hwnd, &pt) {
 		return errors.New("ClientToScreen failed")
 	}
-	screenDC := win.GetDC(0)
-	if screenDC == 0 {
-		return errors.New("GetDC failed")
+	ox, oy := int(pt.X-bounds.Left)+int(g.x), int(pt.Y-bounds.Top)+int(g.y)
+	w, h := int(g.w), int(g.h)
+	if ox < 0 || oy < 0 || ox+w > fw || oy+h > fh {
+		return fmt.Errorf("area is outside the captured window frame (%dx%d)", fw, fh)
 	}
-	defer win.ReleaseDC(0, screenDC)
-	if !win.BitBlt(g.src.dc, g.x, g.y, g.w, g.h, screenDC, pt.X+g.x, pt.Y+g.y, win.SRCCOPY|win.CAPTUREBLT) {
-		return fmt.Errorf("screen copy failed (error %d)", win.GetLastError())
+	dst := g.src.pixels()
+	for y := 0; y < h; y++ {
+		copy(dst[y*w*4:(y+1)*w*4], frame[((oy+y)*fw+ox)*4:])
+	}
+	return nil
+}
+
+func (g *WindowGrabber) fromPrintWindow() error {
+	var rc win.RECT
+	win.GetClientRect(g.hwnd, &rc)
+	full, err := newDIB(rc.Right-rc.Left, rc.Bottom-rc.Top)
+	if err != nil {
+		return err
+	}
+	defer full.free()
+	if r, _, _ := procPrintWindow.Call(uintptr(g.hwnd), uintptr(full.dc), pwClientOnly|pwRenderFullContent); r == 0 {
+		return errors.New("PrintWindow failed")
+	}
+	if !win.BitBlt(g.src.dc, 0, 0, g.w, g.h, full.dc, g.x, g.y, win.SRCCOPY) {
+		return fmt.Errorf("blit failed (error %d)", win.GetLastError())
 	}
 	return nil
 }
 
 func (g *WindowGrabber) Close() {
+	g.detach()
 	g.src.free()
 	g.out.free()
 }
