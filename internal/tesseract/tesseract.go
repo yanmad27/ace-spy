@@ -119,22 +119,91 @@ func (e *Engine) Recognize(bgra []byte, w, h int) ([]string, error) {
 	return lines, nil
 }
 
-// Preprocess converts to grayscale and inverts light-on-dark text (typical game chat)
-// so Tesseract sees dark text on a light background.
+// Preprocess prepares a game chat capture for Tesseract. Tuned on real Ace Online
+// frames (coloured text on a dark-blue background):
+//   - grey = max(R, G): the blue channel is dropped because the background is blue,
+//     so red/purple/green/yellow/white text all stand out (plain luminance made red
+//     text vanish);
+//   - upscale ×1.5 (bilinear) on top of the capture scale;
+//   - Otsu binarisation, then invert so the text is black on white.
 func Preprocess(bgra []byte, w, h int) *image.Gray {
 	g := image.NewGray(image.Rect(0, 0, w, h))
-	var sum uint64
 	for i, j := 0, 0; i < len(bgra); i, j = i+4, j+1 {
-		y := (114*uint32(bgra[i]) + 587*uint32(bgra[i+1]) + 299*uint32(bgra[i+2])) / 1000
-		g.Pix[j] = uint8(y)
-		sum += uint64(y)
+		g.Pix[j] = max(bgra[i+1], bgra[i+2])
 	}
-	if sum/uint64(w*h) < 128 {
+	g = resizeBilinear(g, 1.5)
+	binarize(g, otsu(g))
+	var sum uint64
+	for _, v := range g.Pix {
+		sum += uint64(v)
+	}
+	if sum/uint64(len(g.Pix)) < 128 {
 		for i := range g.Pix {
 			g.Pix[i] = 255 - g.Pix[i]
 		}
 	}
 	return g
+}
+
+func otsu(g *image.Gray) uint8 {
+	var hist [256]int
+	for _, v := range g.Pix {
+		hist[v]++
+	}
+	var sum, sumB, wB, best float64
+	for i, c := range hist {
+		sum += float64(i * c)
+	}
+	thr := 0
+	for t := 0; t < 256; t++ {
+		wB += float64(hist[t])
+		if wB == 0 {
+			continue
+		}
+		wF := float64(len(g.Pix)) - wB
+		if wF == 0 {
+			break
+		}
+		sumB += float64(t * hist[t])
+		mB, mF := sumB/wB, (sum-sumB)/wF
+		if v := wB * wF * (mB - mF) * (mB - mF); v > best {
+			best, thr = v, t
+		}
+	}
+	return uint8(thr)
+}
+
+func binarize(g *image.Gray, thr uint8) {
+	for i, v := range g.Pix {
+		if v > thr {
+			g.Pix[i] = 255
+		} else {
+			g.Pix[i] = 0
+		}
+	}
+}
+
+func resizeBilinear(g *image.Gray, f float64) *image.Gray {
+	sw, sh := g.Rect.Dx(), g.Rect.Dy()
+	w, h := max(int(float64(sw)*f), 1), max(int(float64(sh)*f), 1)
+	out := image.NewGray(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		fy := max((float64(y)+0.5)/f-0.5, 0)
+		y0 := min(int(fy), sh-1)
+		y1 := min(y0+1, sh-1)
+		dy := fy - float64(y0)
+		for x := 0; x < w; x++ {
+			fx := max((float64(x)+0.5)/f-0.5, 0)
+			x0 := min(int(fx), sw-1)
+			x1 := min(x0+1, sw-1)
+			dx := fx - float64(x0)
+			a, b := float64(g.Pix[y0*sw+x0]), float64(g.Pix[y0*sw+x1])
+			c, d := float64(g.Pix[y1*sw+x0]), float64(g.Pix[y1*sw+x1])
+			v := a*(1-dx)*(1-dy) + b*dx*(1-dy) + c*(1-dx)*dy + d*dx*dy
+			out.Pix[y*w+x] = uint8(v + 0.5)
+		}
+	}
+	return out
 }
 
 func find(override, appDir string) (string, error) {

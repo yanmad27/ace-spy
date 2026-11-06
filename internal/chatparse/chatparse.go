@@ -122,13 +122,21 @@ func (m *message) String() string {
 	return b.String()
 }
 
+// meaningful accepts a message with a well-formed header ("[hh:mm] [Name]") whose body
+// is real chat rather than OCR noise. The header is the strong signal, so the body may be
+// teencode, abbreviations or emoticons ("=))", ":V", "cmndt").
 func (m *message) meaningful() bool {
+	if len(m.names) == 0 || m.body == "" {
+		return false
+	}
 	if strings.HasPrefix(m.body, "[") || logEchoRe.MatchString(m.body) {
 		return false // unclosed name bracket, or our own log read back
 	}
 	st := score(m.body)
-	enough := st.valid >= 2 || (st.words == 1 && st.valid == 1 && st.longest >= 3)
-	return enough && st.ratio() >= 0.5 && st.junkRatio() <= 0.2
+	if st.junkRatio() > 0.2 {
+		return false
+	}
+	return st.words < 3 || st.singleRatio() <= 0.5
 }
 
 func parseHeader(line string) (*message, bool) {

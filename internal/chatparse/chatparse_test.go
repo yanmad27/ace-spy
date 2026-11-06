@@ -74,7 +74,7 @@ func TestMessagesDropsNoiseOnlyFrames(t *testing.T) {
 }
 
 func TestMessagesRejectsTruncatedHeaders(t *testing.T) {
-	for _, line := range []string{"[11:05] [A", "[11:07] [Tí", "[11:11] IT", "[11:05] [ANTD-HID] 2 00k:"} {
+	for _, line := range []string{"[11:05] [A", "[11:07] [Tí", "[11:11] IT", "[11:05] [Ab] ® ‡ „ “"} {
 		if got := Messages([]string{line}); len(got) != 0 {
 			t.Errorf("%q: expected nothing, got %q", line, got)
 		}
@@ -121,6 +121,7 @@ func TestMessagesSplitsMergedLines(t *testing.T) {
 		"[14:11] [Tổng tư lệnh] [ValHellsing] icshay røpi | *l14:11]I©astlerCaromadn] [LAO MØOC] con gà này =))) | *l14:1Z] [Castle.Cgronada] [LAO MØC] sáng giờ bị đấm cho mấy mạng cả AG lắn MG",
 	})
 	want := []string{
+		"[14:11] [Tổng tư lệnh] [ValHellsing] icshay røpi",
 		"*[14:11] [©astlerCaromadn] [LAO MØOC] con gà này =)))",
 		"*[14:12] [Castle.Cgronada] [LAO MØC] sáng giờ bị đấm cho mấy mạng cả AG lắn MG",
 	}
@@ -137,5 +138,21 @@ func TestMessagesRejectsOwnLogEcho(t *testing.T) {
 	}
 	if Acceptable("[14:16] 48 [ANI] [14:12] [Castle] cay để bụng là có thật") {
 		t.Fatal("log echo accepted")
+	}
+}
+
+// Real chat is often teencode or emoticons; with a proper header it must be kept.
+func TestMessagesKeepsShortChat(t *testing.T) {
+	for _, line := range []string{
+		"^[15:38] [Daddy] [BC] =))",
+		"^[15:49] [Sky_Luxury] [AC] :V",
+		"^[14:47] [That_Sat_] [BC] ms",
+		"^[15:43] [Daddy] [BC] cmndt",
+		"^[15:48] [NGNhatAnHy] [AC] MG",
+		"^[15:42] [Daddy] [BC] mua 1m wp",
+	} {
+		if got := Messages([]string{line}); len(got) != 1 {
+			t.Errorf("%q dropped", line)
+		}
 	}
 }

@@ -42,10 +42,29 @@ func TestRecognizeVietnameseChat(t *testing.T) {
 	}
 }
 
-func TestPreprocessInvertsDarkBackground(t *testing.T) {
-	g := Preprocess([]byte{10, 10, 10, 255, 20, 20, 20, 255}, 2, 1)
-	if g.Pix[0] < 200 || g.Pix[1] < 200 {
-		t.Fatalf("expected inversion, got %v", g.Pix)
+// Red chat text on the game's dark-blue background must become black on white
+// (plain luminance made red text nearly invisible).
+func TestPreprocessRedOnBlue(t *testing.T) {
+	const w, h = 20, 20
+	pix := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if x >= 6 && x < 14 && y >= 6 && y < 14 {
+				pix[i], pix[i+1], pix[i+2] = 30, 40, 230 // red text (BGR)
+			} else {
+				pix[i], pix[i+1], pix[i+2] = 120, 50, 20 // dark blue background
+			}
+			pix[i+3] = 255
+		}
+	}
+	g := Preprocess(pix, w, h)
+	cw, ch := g.Rect.Dx(), g.Rect.Dy()
+	if corner := g.Pix[0]; corner != 255 {
+		t.Fatalf("background should be white, got %d", corner)
+	}
+	if centre := g.Pix[(ch/2)*cw+cw/2]; centre != 0 {
+		t.Fatalf("text should be black, got %d", centre)
 	}
 }
 
