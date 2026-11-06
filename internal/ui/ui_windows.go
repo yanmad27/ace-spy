@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/yanmad27/ace-spy/internal/pusher"
 	"github.com/yanmad27/ace-spy/internal/runner"
 	"github.com/yanmad27/ace-spy/internal/screen"
+	"github.com/yanmad27/ace-spy/internal/tesseract"
 	"github.com/yanmad27/ace-spy/internal/winocr"
 )
 
@@ -31,6 +33,7 @@ type app struct {
 	tokenEd   *walk.LineEdit
 	clientEd  *walk.LineEdit
 	langEd    *walk.LineEdit
+	engineCB  *walk.ComboBox
 	table     *walk.TableView
 	model     *regionModel
 	logEdit   *walk.TextEdit
@@ -39,9 +42,9 @@ type app struct {
 
 	logLines []string
 
-	engineMu   sync.Mutex
-	engine     *winocr.Engine
-	engineLang string
+	engineMu  sync.Mutex
+	engine    ocrEngine
+	engineKey string
 
 	cancel  context.CancelFunc
 	stopped chan struct{}
@@ -77,6 +80,9 @@ func (a *app) run() error {
 					LineEdit{AssignTo: &a.clientEd, Text: a.cfg.ClientName},
 					Label{Text: "OCR language"},
 					LineEdit{AssignTo: &a.langEd, Text: a.cfg.Language, ToolTipText: "BCP-47 tag, e.g. vi"},
+					Label{Text: "OCR engine"},
+					ComboBox{AssignTo: &a.engineCB, Model: config.Engines, CurrentIndex: engineIndex(a.cfg.OCREngine),
+						ToolTipText: "tesseract supports Vietnamese; Windows OCR does not"},
 				},
 			},
 			TableView{
@@ -110,7 +116,7 @@ func (a *app) run() error {
 	if err != nil {
 		return err
 	}
-	a.editables = []walk.Widget{a.serverEd, a.tokenEd, a.clientEd, a.langEd, addBtn, editBtn, delBtn}
+	a.editables = []walk.Widget{a.serverEd, a.tokenEd, a.clientEd, a.langEd, a.engineCB, addBtn, editBtn, delBtn}
 
 	a.mw.Closing().Attach(func(canceled *bool, _ walk.CloseReason) {
 		a.stop()
@@ -141,6 +147,9 @@ func (a *app) readFields() {
 	a.cfg.Token = strings.TrimSpace(a.tokenEd.Text())
 	a.cfg.ClientName = strings.TrimSpace(a.clientEd.Text())
 	a.cfg.Language = strings.TrimSpace(a.langEd.Text())
+	if i := a.engineCB.CurrentIndex(); i >= 0 && i < len(config.Engines) {
+		a.cfg.OCREngine = config.Engines[i]
+	}
 	a.cfg.Regions = a.model.rows
 }
 
@@ -171,22 +180,51 @@ func (a *app) errorBox(title string, err error) {
 	walk.MsgBox(a.mw, title, err.Error(), walk.MsgBoxIconError)
 }
 
-func (a *app) ocrEngine() (*winocr.Engine, error) {
-	lang := strings.TrimSpace(a.langEd.Text())
+type ocrEngine interface {
+	Recognize(bgra []byte, width, height int) ([]string, error)
+	Close()
+}
+
+func engineIndex(name string) int {
+	for i, e := range config.Engines {
+		if e == name {
+			return i
+		}
+	}
+	return 0
+}
+
+func (a *app) ocrEngine() (ocrEngine, error) {
+	a.readFields()
+	key := a.cfg.OCREngine + "|" + a.cfg.Language + "|" + a.cfg.TesseractPath
 	a.engineMu.Lock()
 	defer a.engineMu.Unlock()
-	if a.engine != nil && a.engineLang == lang {
+	if a.engine != nil && a.engineKey == key {
 		return a.engine, nil
 	}
 	if a.engine != nil {
 		a.engine.Close()
 		a.engine = nil
 	}
-	e, err := winocr.New(lang)
+	var (
+		e   ocrEngine
+		err error
+	)
+	switch a.cfg.OCREngine {
+	case config.EngineWindows:
+		e, err = winocr.New(a.cfg.Language)
+	default:
+		var te *tesseract.Engine
+		te, err = tesseract.New(a.cfg.TesseractPath, filepath.Dir(a.cfgPath), a.cfg.Language)
+		if err == nil {
+			a.logf("Using Tesseract: %s", te.Exe())
+			e = te
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
-	a.engine, a.engineLang = e, lang
+	a.engine, a.engineKey = e, key
 	return e, nil
 }
 

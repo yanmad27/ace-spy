@@ -14,8 +14,11 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
 
@@ -24,20 +27,27 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Test
-        run: go test ./...
-
-      - name: Vet Windows client
-        run: GOOS=windows GOARCH=amd64 go vet ./...
+      - name: Install Tesseract
+        run: choco install tesseract -y --no-progress
 
       - name: Build
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           ./build-client.sh "$version"
-          cd dist
-          zip -9 "ace-spy-${version}-windows-amd64.zip" ace-spy.exe ace-spy.exe.manifest
-          sha256sum "ace-spy-${version}-windows-amd64.zip" > SHA256SUMS.txt
+          ./scripts/bundle-tesseract.sh
+
+      - name: Test (Windows OCR, bundled Tesseract)
+        env:
+          TESS_TEST_APPDIR: ${{ github.workspace }}/dist
+        run: go test -count=1 -v ./internal/tesseract ./internal/winocr ./internal/chatdiff ./internal/runner ./internal/pusher
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          zip="ace-spy-${version}-windows-amd64.zip"
+          (cd dist && 7z a -tzip -mx=9 "$zip" ace-spy.exe ace-spy.exe.manifest tesseract tessdata >/dev/null && sha256sum "$zip" > SHA256SUMS.txt)
 
       - name: Publish release
         env:

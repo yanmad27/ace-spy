@@ -5,7 +5,7 @@ Reads Ace Online chat from configurable screen regions with Windows OCR (Vietnam
 ```
 [Windows PC: ace-spy.exe]                              [Vercel: cmd/server (Go) + Neon Postgres]
  region "Bang hội"  ─┐  GDI capture → upscale            POST /api/ingest (Bearer token)
- region "Toàn sv"   ─┼─ → Windows.Media.Ocr (vi)   ───▶   Postgres + dedupe
+ region "Toàn sv"   ─┼─ → Tesseract (vie)        ───▶   Postgres + dedupe
  region "Đội"       ─┘  → diff vs previous frame          web viewer polls /api/messages every 2 s
 ```
 
@@ -42,12 +42,9 @@ Run `./release.sh [x.y.z]` from a clean, pushed `main`. It tags `vX.Y.Z`, and Gi
 
 ## Client (Windows 10/11)
 
-1. Install the Vietnamese OCR pack once, from an admin PowerShell:
-   ```powershell
-   Add-WindowsCapability -Online -Name "Language.OCR~~~vi-VN~0.0.1.0"
-   ```
-2. Download the zip from GitHub Releases (or run `./build-client.sh`). Unzip it so `ace-spy.exe` and `ace-spy.exe.manifest` sit in the same folder.
-3. Run it and enter the server URL (your `*.vercel.app` domain), the ingest token and a client name.
+1. Download the zip from [GitHub Releases](https://github.com/yanmad27/ace-spy/releases/latest) and extract **all** of it. It bundles a portable Tesseract (`tesseract/`) and the Vietnamese model (`tessdata/vie.traineddata`), so nothing needs installing.
+2. Leave **OCR engine** on `tesseract`. Windows' built-in OCR has no Vietnamese; the `windows` option only suits other languages.
+3. Run `ace-spy.exe` and enter the server URL (your `*.vercel.app` domain), the ingest token and a client name.
 4. Click **Add region…**, then **Pick area…**. The screen freezes; drag a box around the chat box. Give each region a label (for example `Bang hội`, `Toàn server`). The label becomes the channel name on the website.
 5. Use **Test OCR** to check what is recognized. If small text is misread, raise **Upscale** (×2–×3).
 6. Click **Start**.

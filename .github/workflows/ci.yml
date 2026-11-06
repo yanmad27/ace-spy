@@ -28,3 +28,22 @@ jobs:
       - run: go vet ./...
       - run: GOOS=windows GOARCH=amd64 go vet ./...
       - run: go test -count=1 ./...
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: choco install tesseract -y --no-progress
+      - run: ./build-client.sh ci && ./scripts/bundle-tesseract.sh
+      - name: Test Windows OCR and bundled Tesseract
+        env:
+          TESS_TEST_APPDIR: ${{ github.workspace }}/dist
+        run: go test -count=1 -v ./internal/tesseract ./internal/winocr

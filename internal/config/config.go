@@ -33,19 +33,29 @@ type Region struct {
 	Enabled    bool   `json:"enabled"`
 }
 
+const (
+	EngineTesseract = "tesseract"
+	EngineWindows   = "windows"
+)
+
+var Engines = []string{EngineTesseract, EngineWindows}
+
 type Config struct {
-	ServerURL  string   `json:"serverUrl"`
-	Token      string   `json:"token"`
-	ClientName string   `json:"clientName"`
-	Language   string   `json:"language"`
-	Regions    []Region `json:"regions"`
+	ServerURL     string   `json:"serverUrl"`
+	Token         string   `json:"token"`
+	ClientName    string   `json:"clientName"`
+	OCREngine     string   `json:"ocrEngine"`
+	Language      string   `json:"language"`
+	TesseractPath string   `json:"tesseractPath,omitempty"`
+	Regions       []Region `json:"regions"`
 }
 
 func Default() Config {
 	host, _ := os.Hostname()
 	return Config{
-		ServerURL:  "http://localhost:8080",
+		ServerURL:  "https://ace-spy.vercel.app",
 		ClientName: host,
+		OCREngine:  EngineTesseract,
 		Language:   "vi",
 		Regions:    []Region{},
 	}
@@ -87,6 +97,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Token) == "" {
 		return errors.New("ingest token is required")
+	}
+	if c.OCREngine != EngineTesseract && c.OCREngine != EngineWindows {
+		return fmt.Errorf("OCR engine must be %q or %q", EngineTesseract, EngineWindows)
 	}
 	if strings.TrimSpace(c.Language) == "" {
 		return errors.New("OCR language is required")
