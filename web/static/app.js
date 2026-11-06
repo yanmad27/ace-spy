@@ -55,8 +55,13 @@ function highlight(el, text) {
   el.append(text.slice(i));
 }
 
+// In-game channel symbols: ! green, @ purple, # $ % orange, ^ red.
+const CHANNELS = { "!": "ch-green", "@": "ch-purple", "#": "ch-orange", "$": "ch-orange", "%": "ch-orange", "^": "ch-red" };
+
 function row(m) {
   const li = document.createElement("li");
+  const ch = CHANNELS[m.text.charAt(0)];
+  if (ch && m.text.charAt(1) === "[") li.classList.add(ch);
   li.dataset.id = m.id;
   li.dataset.text = m.text.toLowerCase();
   const t = document.createElement("time");

@@ -12,8 +12,10 @@ import (
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
+	"github.com/lxn/win"
 
 	"github.com/yanmad27/ace-spy/internal/config"
+	"github.com/yanmad27/ace-spy/internal/gamewin"
 	"github.com/yanmad27/ace-spy/internal/pusher"
 	"github.com/yanmad27/ace-spy/internal/runner"
 	"github.com/yanmad27/ace-spy/internal/screen"
@@ -90,7 +92,7 @@ func (a *app) run() error {
 				AlternatingRowBG: true,
 				Columns: []TableViewColumn{
 					{Title: "Label", Width: 130},
-					{Title: "Area (x, y, w×h)", Width: 170},
+					{Title: "Area", Width: 210},
 					{Title: "Interval", Width: 70},
 					{Title: "Scale", Width: 50},
 					{Title: "On", Width: 40},
@@ -301,7 +303,7 @@ func (a *app) testSelected() {
 		a.errorBox("OCR unavailable", err)
 		return
 	}
-	g, err := screen.NewGrabber(r.X, r.Y, r.Width, r.Height, r.Scale)
+	g, err := grabberFor(newResolver(a.model.rows), r)
 	if err != nil {
 		a.errorBox("Capture failed", err)
 		return
@@ -358,6 +360,27 @@ func (a *app) start() {
 		return
 	}
 
+	res := newResolver(a.cfg.Regions)
+	for i, r := range a.cfg.Regions {
+		if !r.Enabled || r.Window == nil {
+			continue
+		}
+		info, err := res.Resolve(*r.Window)
+		if err != nil {
+			a.logf("[%s] %v", r.Label, err)
+			continue
+		}
+		if info.PID != r.Window.PID {
+			a.logf("[%s] attached to %s PID %d (was %d)", r.Label, info.Exe, info.PID, r.Window.PID)
+			a.cfg.Regions[i].Window = info.Target()
+		}
+	}
+	a.model.rows = a.cfg.Regions
+	a.model.PublishRowsReset()
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		a.logf("Save config failed: %v", err)
+	}
+
 	labels := map[string]string{}
 	for _, r := range a.cfg.Regions {
 		labels[r.ID] = r.Label
@@ -365,9 +388,7 @@ func (a *app) start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := pusher.New(a.cfg.ServerURL, a.cfg.Token, a.cfg.ClientName, func(s string) { a.asyncLogf("%s", s) })
 	rn := runner.New(
-		func(r config.Region) (runner.Grabber, error) {
-			return screen.NewGrabber(r.X, r.Y, r.Width, r.Height, r.Scale)
-		},
+		func(r config.Region) (runner.Grabber, error) { return grabberFor(res, r) },
 		e, p,
 		runner.Events{
 			OnLines: func(id string, visible, fresh []string) {
@@ -415,6 +436,25 @@ func (a *app) setRunning(running bool) {
 	}
 }
 
+func newResolver(regions []config.Region) *gamewin.Resolver {
+	var targets []*config.WindowTarget
+	for _, r := range regions {
+		targets = append(targets, r.Window)
+	}
+	return gamewin.NewResolver(targets)
+}
+
+func grabberFor(res *gamewin.Resolver, r config.Region) (runner.Grabber, error) {
+	if r.Window == nil {
+		return screen.NewGrabber(r.X, r.Y, r.Width, r.Height, r.Scale)
+	}
+	t := *r.Window
+	return screen.NewWindowGrabber(func() (win.HWND, error) {
+		info, err := res.Resolve(t)
+		return info.HWND, err
+	}, r.X, r.Y, r.Width, r.Height, r.Scale)
+}
+
 type regionModel struct {
 	walk.TableModelBase
 	rows []config.Region
@@ -429,7 +469,10 @@ func (m *regionModel) Value(row, col int) interface{} {
 	case 0:
 		return r.Label
 	case 1:
-		return fmt.Sprintf("%d, %d, %d×%d", r.X, r.Y, r.Width, r.Height)
+		if r.Window != nil {
+			return fmt.Sprintf("%s#%d +%d,%d %d×%d", r.Window.Exe, r.Window.PID, r.X, r.Y, r.Width, r.Height)
+		}
+		return fmt.Sprintf("screen %d,%d %d×%d", r.X, r.Y, r.Width, r.Height)
 	case 2:
 		return fmt.Sprintf("%d ms", r.IntervalMs)
 	case 3:

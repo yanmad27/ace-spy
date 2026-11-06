@@ -49,8 +49,8 @@ func (s *sink) Enqueue(m ...pusher.Message) {
 func TestRunnerEmitsOnlyNewLinesAndSkipsUnchangedFrames(t *testing.T) {
 	g := &fakeGrabber{frames: [][]byte{{1, 0, 0, 0}, {1, 0, 0, 0}, {2, 0, 0, 0}}}
 	ocr := &fakeOCR{byPix: map[byte][]string{
-		1: {"A: xin chào", "B: hello"},
-		2: {"B: hello", "C: bye"},
+		1: {"—zÁZ — —", "[11:05] [Kiếm Sĩ] tối nay đi săn boss không", "I[11:06) [Pháp Sư] chờ mình một chút"},
+		2: {"[11:06] [Pháp Sư] chờ mình một chút", "[11:07] [Diana] ae có đồ xin với", "® ® té mi"},
 	}}
 	s := &sink{}
 	r := New(func(config.Region) (Grabber, error) { return g, nil }, ocr, s, Events{})
@@ -69,7 +69,11 @@ func TestRunnerEmitsOnlyNewLinesAndSkipsUnchangedFrames(t *testing.T) {
 		}
 		texts = append(texts, m.Text)
 	}
-	want := []string{"A: xin chào", "B: hello", "C: bye"}
+	want := []string{
+		"[11:05] [Kiếm Sĩ] tối nay đi săn boss không",
+		"![11:06] [Pháp Sư] chờ mình một chút",
+		"[11:07] [Diana] ae có đồ xin với",
+	}
 	if len(texts) != len(want) {
 		t.Fatalf("got %q want %q", texts, want)
 	}

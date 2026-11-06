@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,9 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/yanmad27/ace-spy/internal/chatdiff"
+	"github.com/yanmad27/ace-spy/internal/chatparse"
 )
 
 const (
@@ -138,6 +142,9 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("messages[%d].text: %v", i, err), http.StatusBadRequest)
 			return
 		}
+		if !chatparse.Acceptable(text) {
+			continue
+		}
 		ts := m.TS
 		if ts <= 0 || ts > now.Add(futureTolerance).UnixMilli() {
 			ts = nowMs
@@ -145,17 +152,63 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		msgs = append(msgs, Message{Client: client, Region: region, Text: text, CapturedAt: ts, ReceivedAt: nowMs})
 	}
 
-	var since int64
 	if s.opts.Dedupe > 0 {
-		since = now.Add(-s.opts.Dedupe).UnixMilli()
+		var err error
+		if msgs, err = s.dropDuplicates(r.Context(), msgs, now.Add(-s.opts.Dedupe).UnixMilli()); err != nil {
+			log.Printf("dedupe: %v", err)
+			http.Error(w, "storage error", http.StatusInternalServerError)
+			return
+		}
 	}
-	stored, err := s.store.Insert(r.Context(), msgs, since)
+	total := len(req.Messages)
+	if len(msgs) == 0 {
+		writeJSON(w, http.StatusOK, map[string]int{"accepted": 0, "duplicates": total})
+		return
+	}
+	stored, err := s.store.Insert(r.Context(), msgs)
 	if err != nil {
 		log.Printf("ingest: %v", err)
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"accepted": len(stored), "duplicates": len(msgs) - len(stored)})
+	writeJSON(w, http.StatusOK, map[string]int{"accepted": len(stored), "duplicates": total - len(stored)})
+}
+
+const dedupeLookback = 500
+
+// dropDuplicates removes messages whose folded text (no diacritics, letters and digits
+// only) is within OCR noise of a recent message in the same region or earlier in the batch.
+func (s *Server) dropDuplicates(ctx context.Context, msgs []Message, since int64) ([]Message, error) {
+	seen := map[string][]string{}
+	out := msgs[:0:0]
+	for _, m := range msgs {
+		keys, ok := seen[m.Region]
+		if !ok {
+			texts, err := s.store.RecentTexts(ctx, m.Region, since, dedupeLookback)
+			if err != nil {
+				return nil, err
+			}
+			for _, t := range texts {
+				keys = append(keys, chatparse.Key(t))
+			}
+		}
+		k := chatparse.Key(m.Text)
+		if k != "" && !containsSimilarKey(keys, k) {
+			out = append(out, m)
+			keys = append(keys, k)
+		}
+		seen[m.Region] = keys
+	}
+	return out, nil
+}
+
+func containsSimilarKey(keys []string, k string) bool {
+	for _, e := range keys {
+		if chatdiff.Similar(e, k) {
+			return true
+		}
+	}
+	return false
 }
 
 func clean(s string, maxRunes int, allowEmpty bool) (string, error) {

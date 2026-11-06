@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yanmad27/ace-spy/internal/chatdiff"
+	"github.com/yanmad27/ace-spy/internal/chatparse"
 	"github.com/yanmad27/ace-spy/internal/config"
 	"github.com/yanmad27/ace-spy/internal/pusher"
 )
@@ -108,16 +109,17 @@ func (r *Runner) tick(reg config.Region, g Grabber, tracker *chatdiff.Tracker, l
 		return fmt.Errorf("ocr: %w", err)
 	}
 	*lastHash = sum
-	fresh := tracker.Feed(lines)
-	r.events.OnLines(reg.ID, lines, fresh)
+	msgs := chatparse.Messages(lines)
+	fresh := tracker.Feed(msgs)
+	r.events.OnLines(reg.ID, msgs, fresh)
 	if len(fresh) == 0 {
 		return nil
 	}
 	now := time.Now().UnixMilli()
-	msgs := make([]pusher.Message, len(fresh))
+	out := make([]pusher.Message, len(fresh))
 	for i, text := range fresh {
-		msgs[i] = pusher.Message{Region: reg.Label, Text: text, TS: now}
+		out[i] = pusher.Message{Region: reg.Label, Text: text, TS: now}
 	}
-	r.sink.Enqueue(msgs...)
+	r.sink.Enqueue(out...)
 	return nil
 }

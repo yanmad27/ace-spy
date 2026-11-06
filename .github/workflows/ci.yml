@@ -46,4 +46,4 @@ jobs:
       - name: Test Windows OCR and bundled Tesseract
         env:
           TESS_TEST_APPDIR: ${{ github.workspace }}/dist
-        run: go test -count=1 -v ./internal/tesseract ./internal/winocr
+        run: go test -count=1 -v ./internal/tesseract ./internal/winocr ./internal/gamewin

@@ -8,6 +8,10 @@
   --ok: #16a34a;
   --bad: #dc2626;
   --hl: #fde68a;
+  --ch-green: #15803d;
+  --ch-purple: #7e22ce;
+  --ch-orange: #c2410c;
+  --ch-red: #b91c1c;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -20,6 +24,10 @@
     --ok: #4ade80;
     --bad: #f87171;
     --hl: #854d0e;
+    --ch-green: #4ade80;
+    --ch-purple: #c084fc;
+    --ch-orange: #fb923c;
+    --ch-red: #f87171;
   }
 }
 * { box-sizing: border-box; }
@@ -113,6 +121,10 @@ main { flex: 1; overflow-y: auto; padding: 8px 16px 16px; min-width: 0; }
   white-space: nowrap;
 }
 #feed .text { overflow-wrap: anywhere; }
+#feed li.ch-green .text { color: var(--ch-green); }
+#feed li.ch-purple .text { color: var(--ch-purple); }
+#feed li.ch-orange .text { color: var(--ch-orange); }
+#feed li.ch-red .text { color: var(--ch-red); }
 mark { background: var(--hl); color: inherit; }
 @media (max-width: 640px) {
   .layout { flex-direction: column; }

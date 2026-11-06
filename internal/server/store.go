@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	received_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_region_id ON messages(region, id);
-CREATE INDEX IF NOT EXISTS idx_messages_dedupe ON messages(region, text, received_at);
+DROP INDEX IF EXISTS idx_messages_dedupe;
 CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
 -- No policies: blocks Supabase/PostgREST anon access; the owning role used by this server is exempt.
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
@@ -93,26 +93,18 @@ INSERT INTO messages (client, region, text, captured_at, received_at)
 SELECT t.client, t.region, t.text, t.captured_at, t.received_at
 FROM unnest($1::text[], $2::text[], $3::text[], $4::bigint[], $5::bigint[])
 	WITH ORDINALITY AS t(client, region, text, captured_at, received_at, ord)
-WHERE $6::bigint = 0 OR NOT EXISTS (
-	SELECT 1 FROM messages m
-	WHERE m.region = t.region AND m.text = t.text AND m.received_at >= $6::bigint
-)
 ORDER BY t.ord
 RETURNING id, client, region, text, captured_at, received_at`
 
-// Insert stores messages in one round trip, skipping any (region, text) already
-// received at or after dedupeSince (0 disables dedupe). Returned rows are ordered by id.
-func (s *Store) Insert(ctx context.Context, msgs []Message, dedupeSince int64) ([]Message, error) {
-	if dedupeSince > 0 {
-		msgs = uniqueByRegionText(msgs)
-	}
+// Insert stores messages in one round trip. Returned rows are ordered by id.
+func (s *Store) Insert(ctx context.Context, msgs []Message) ([]Message, error) {
 	n := len(msgs)
 	clients, regions, texts := make([]string, n), make([]string, n), make([]string, n)
 	captured, received := make([]int64, n), make([]int64, n)
 	for i, m := range msgs {
 		clients[i], regions[i], texts[i], captured[i], received[i] = m.Client, m.Region, m.Text, m.CapturedAt, m.ReceivedAt
 	}
-	out, err := s.query(ctx, insertSQL, clients, regions, texts, captured, received, dedupeSince)
+	out, err := s.query(ctx, insertSQL, clients, regions, texts, captured, received)
 	if err != nil {
 		return nil, err
 	}
@@ -120,17 +112,15 @@ func (s *Store) Insert(ctx context.Context, msgs []Message, dedupeSince int64) (
 	return out, nil
 }
 
-func uniqueByRegionText(msgs []Message) []Message {
-	seen := make(map[[2]string]bool, len(msgs))
-	out := msgs[:0:0]
-	for _, m := range msgs {
-		k := [2]string{m.Region, m.Text}
-		if !seen[k] {
-			seen[k] = true
-			out = append(out, m)
-		}
+// RecentTexts returns up to limit texts in region received at or after since, newest first.
+func (s *Store) RecentTexts(ctx context.Context, region string, since int64, limit int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT text FROM messages WHERE region = $1 AND received_at >= $2
+		ORDER BY id DESC LIMIT $3`, region, since, limit)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 // Before returns up to limit messages with id < beforeID (0 = latest), oldest first.

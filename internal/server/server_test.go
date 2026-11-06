@@ -61,28 +61,50 @@ func TestIngestAuthValidationDedupeAndQuery(t *testing.T) {
 	if r := do(t, "POST", ingest, "Bearer "+token, `{"client":"pc","messages":[{"region":"","text":"x"}]}`); r.StatusCode != http.StatusBadRequest {
 		t.Fatalf("empty region: %d", r.StatusCode)
 	}
-	body := `{"client":"pc","messages":[{"region":"Guild","text":"xin chào","ts":1},{"region":"Guild","text":"xin chào"},{"region":"Map","text":"đi săn"}]}`
+	body := `{"client":"pc","messages":[{"region":"Guild","text":"![11:01] [An] xin chào bạn","ts":1},{"region":"Guild","text":"![11:01] [An] xin chào bạn"},{"region":"Map","text":"@[11:02] [Bình] đi săn boss"}]}`
 	if r := do(t, "POST", ingest, "Bearer "+token, body); r.StatusCode != http.StatusOK {
 		t.Fatalf("ingest: %d", r.StatusCode)
 	}
-	if r := do(t, "POST", ingest, "Bearer "+token, `{"client":"pc2","messages":[{"region":"Guild","text":"xin chào"},{"region":"Guild","text":"mới"}]}`); r.StatusCode != http.StatusOK {
+	if r := do(t, "POST", ingest, "Bearer "+token, `{"client":"pc2","messages":[{"region":"Guild","text":"![11:01] [An] xin chao ban"},{"region":"Guild","text":"![11:03] [An] tối nay đi đâu"}]}`); r.StatusCode != http.StatusOK {
 		t.Fatalf("ingest 2: %d", r.StatusCode)
 	}
 
 	var msgs []Message
 	getJSON(t, srv.URL+"/api/messages?region=Guild", &msgs)
-	if len(msgs) != 2 || msgs[0].Text != "xin chào" || msgs[0].CapturedAt != 1 || msgs[1].Text != "mới" {
+	if len(msgs) != 2 || msgs[0].Text != "![11:01] [An] xin chào bạn" || msgs[0].CapturedAt != 1 || msgs[1].Text != "![11:03] [An] tối nay đi đâu" {
 		t.Fatalf("messages: %+v", msgs)
 	}
 	var after []Message
 	getJSON(t, srv.URL+"/api/messages?after="+itoa(msgs[0].ID), &after)
-	if len(after) != 2 || after[0].Text != "đi săn" || after[1].Text != "mới" {
+	if len(after) != 2 || after[0].Text != "@[11:02] [Bình] đi săn boss" || after[1].Text != "![11:03] [An] tối nay đi đâu" {
 		t.Fatalf("after: %+v", after)
 	}
 	var regions []RegionStat
 	getJSON(t, srv.URL+"/api/regions", &regions)
 	if len(regions) != 2 || regions[0].Region != "Guild" || regions[0].Count != 2 || regions[1].Region != "Map" {
 		t.Fatalf("regions: %+v", regions)
+	}
+}
+
+func TestIngestDropsNoiseAndFuzzyDuplicates(t *testing.T) {
+	srv := newTestServer(t, Options{Dedupe: 10 * time.Minute})
+	body := `{"client":"pc","messages":[
+		{"region":"Chat","text":"^[11:10] [Tổng tư lệnh] [valHellsing] ibark AE nháy nháy cmm. chú hùa"},
+		{"region":"Chat","text":"—zÁZ — —"},
+		{"region":"Chat","text":"3V lễ (0 4 li ® ®% t2 ma"},
+		{"region":"Chat","text":"tối nay đi săn boss không"},
+		{"region":"Chat","text":"[11:10] [Tổng tư lệnh] [valHellsing] bark AE nháy nháy cmm. chú hùa"},
+		{"region":"Chat","text":"[11:12] [Diana] ae có đồ xin với"}
+	]}`
+	if r := do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, body); r.StatusCode != http.StatusOK {
+		t.Fatalf("ingest: %d", r.StatusCode)
+	}
+	do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, `{"messages":[{"region":"Chat","text":"[11:12] [Dìana] ae cố đồ xin vơi"}]}`)
+
+	var msgs []Message
+	getJSON(t, srv.URL+"/api/messages", &msgs)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %+v", msgs)
 	}
 }
 
@@ -105,7 +127,7 @@ func TestViewAuth(t *testing.T) {
 
 func TestCronPrune(t *testing.T) {
 	srv := newTestServer(t, Options{Retention: time.Hour, CronSecret: "cron-secret"})
-	do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, `{"messages":[{"region":"Guild","text":"x"}]}`)
+	do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, `{"messages":[{"region":"Guild","text":"![11:04] [An] tối nay đi săn"}]}`)
 	if r := do(t, "GET", srv.URL+"/api/cron/prune", "Bearer nope", ""); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", r.StatusCode)
 	}

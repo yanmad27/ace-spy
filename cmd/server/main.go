@@ -29,7 +29,7 @@ func main() {
 		IngestToken:  token,
 		ViewUser:     env("VIEW_USER", "admin"),
 		ViewPassword: os.Getenv("VIEW_PASSWORD"),
-		Dedupe:       time.Duration(envInt("DEDUPE_SECONDS", 60)) * time.Second,
+		Dedupe:       time.Duration(envInt("DEDUPE_SECONDS", 600)) * time.Second,
 		Retention:    time.Duration(envInt("RETENTION_DAYS", 30)) * 24 * time.Hour,
 		CronSecret:   os.Getenv("CRON_SECRET"),
 	}

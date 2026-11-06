@@ -21,16 +21,25 @@ const (
 	MaxLabelLen   = 64
 )
 
+// WindowTarget binds a region to a game client window. X/Y are then relative to
+// that window's client area instead of the screen.
+type WindowTarget struct {
+	Exe   string `json:"exe"`
+	Title string `json:"title"`
+	PID   uint32 `json:"pid"`
+}
+
 type Region struct {
-	ID         string `json:"id"`
-	Label      string `json:"label"`
-	X          int    `json:"x"`
-	Y          int    `json:"y"`
-	Width      int    `json:"width"`
-	Height     int    `json:"height"`
-	IntervalMs int    `json:"intervalMs"`
-	Scale      int    `json:"scale"`
-	Enabled    bool   `json:"enabled"`
+	ID         string        `json:"id"`
+	Window     *WindowTarget `json:"window,omitempty"`
+	Label      string        `json:"label"`
+	X          int           `json:"x"`
+	Y          int           `json:"y"`
+	Width      int           `json:"width"`
+	Height     int           `json:"height"`
+	IntervalMs int           `json:"intervalMs"`
+	Scale      int           `json:"scale"`
+	Enabled    bool          `json:"enabled"`
 }
 
 const (
@@ -80,6 +89,8 @@ func (r Region) Validate() error {
 		return errors.New("label is required")
 	case len([]rune(label)) > MaxLabelLen:
 		return fmt.Errorf("label must be at most %d characters", MaxLabelLen)
+	case r.Window != nil && (r.X < 0 || r.Y < 0 || r.Window.Exe == ""):
+		return errors.New("invalid game window binding; pick the area again")
 	case r.Width < MinRegionSide || r.Height < MinRegionSide:
 		return fmt.Errorf("area must be at least %dx%d pixels; pick an area first", MinRegionSide, MinRegionSide)
 	case r.IntervalMs < MinIntervalMs || r.IntervalMs > MaxIntervalMs:
