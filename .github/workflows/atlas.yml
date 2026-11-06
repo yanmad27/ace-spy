@@ -1,0 +1,22 @@
+name: Glyph atlas
+
+on:
+  workflow_dispatch:
+
+jobs:
+  atlas:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go run ./cmd/atlasgen > verdana12-gdi.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlas
+          path: verdana12-gdi.json
