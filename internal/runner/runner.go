@@ -81,13 +81,14 @@ func (r *Runner) loop(ctx context.Context, reg config.Region) {
 	defer g.Close()
 
 	var tracker chatdiff.Tracker
+	names := chatparse.NewNameBook()
 	var lastHash uint64
 	var lastSample time.Time
 	ticker := time.NewTicker(time.Duration(reg.IntervalMs) * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
-		if err := r.tick(reg, g, &tracker, &lastHash, &lastSample); err != nil {
+		if err := r.tick(reg, g, names, &tracker, &lastHash, &lastSample); err != nil {
 			r.events.OnError(reg.ID, err)
 		}
 		select {
@@ -98,7 +99,7 @@ func (r *Runner) loop(ctx context.Context, reg config.Region) {
 	}
 }
 
-func (r *Runner) tick(reg config.Region, g Grabber, tracker *chatdiff.Tracker, lastHash *uint64, lastSample *time.Time) error {
+func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, tracker *chatdiff.Tracker, lastHash *uint64, lastSample *time.Time) error {
 	pix, w, h, err := g.Grab()
 	if err != nil {
 		return fmt.Errorf("capture: %w", err)
@@ -118,7 +119,7 @@ func (r *Runner) tick(reg config.Region, g Grabber, tracker *chatdiff.Tracker, l
 		*lastSample = time.Now()
 		r.events.OnSample(reg, pix, w, h, lines)
 	}
-	msgs := chatparse.Messages(lines)
+	msgs := names.Messages(lines)
 	fresh := tracker.Feed(msgs)
 	r.events.OnLines(reg.ID, msgs, fresh)
 	if len(fresh) == 0 {
