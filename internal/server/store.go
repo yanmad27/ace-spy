@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
 	"time"
 
@@ -43,13 +44,24 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_region_id ON messages(region, id);
 CREATE INDEX IF NOT EXISTS idx_messages_dedupe ON messages(region, text, received_at);
 CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
+-- No policies: blocks Supabase/PostgREST anon access; the owning role used by this server is exempt.
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 `
 
 func OpenStore(ctx context.Context, databaseURL string) (*Store, error) {
-	cfg, err := pgxpool.ParseConfig(databaseURL)
+	u, err := url.Parse(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
+	q := u.Query()
+	q.Del("supa") // Supabase pooler marker; Postgres rejects it as a runtime parameter.
+	u.RawQuery = q.Encode()
+	cfg, err := pgxpool.ParseConfig(u.String())
+	if err != nil {
+		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
+	}
+	// Transaction-mode poolers (Supabase :6543, Neon -pooler) don't keep named prepared statements.
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 	cfg.MaxConns = 5
 	cfg.MaxConnIdleTime = time.Minute
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)

@@ -3,3 +3,5 @@ data/
 *.exe
 ace-spy.json
 ace-spy.log
+.vercel
+.env*
