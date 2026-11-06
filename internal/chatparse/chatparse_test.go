@@ -44,11 +44,11 @@ func TestMessagesFromRealFrame(t *testing.T) {
 		"Tớ lò G) A4 “I Ấ ® le mi",
 	}
 	want := []string{
-		"[11:10] [Tổng tư lệnh] [valHellsing] ibark AE nháy nháy cmm. chú hùa. chì biết cắn chạy",
-		"[11:12] [Tổng tư lệnh] [valHellsing] bäk 2E : zr cú vài mang thế này đánh đấm gì",
-		"[11:12] [Tổng tư lệnh] [valHellsing] ra AE bú căk tap nè 1 với 1 dám. cắn đã rủ cả bầy lên. chú hùa",
-		"[11:15] [Tổng tư lệnh] [valHellsing] +5 bùf liuen tục vl chay]",
-		"[11:20] [Tổng tư lãnh] [valHellsing] chem cơn ig ` LÍ",
+		"*[11:10] [Tổng tư lệnh] [valHellsing] ibark AE nháy nháy cmm. chú hùa. chì biết cắn chạy",
+		"*[11:12] [Tổng tư lệnh] [valHellsing] bäk 2E : zr cú vài mang thế này đánh đấm gì",
+		"*[11:12] [Tổng tư lệnh] [valHellsing] ra AE bú căk tap nè 1 với 1 dám. cắn đã rủ cả bầy lên. chú hùa",
+		"*[11:15] [Tổng tư lệnh] [valHellsing] +5 bùf liuen tục vl chay]",
+		"*[11:20] [Tổng tư lãnh] [valHellsing] chem cơn ig ` LÍ",
 		"![11:05] [ANTD-HID] bán",
 		"$[11:08] [valHellsing] mua ax+7 đầy AE",
 	}

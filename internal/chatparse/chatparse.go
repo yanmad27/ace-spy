@@ -15,8 +15,8 @@ import (
 // "$l1:05]"), so the pattern is loose.
 var timestampRe = regexp.MustCompile(`^\s*(\S{0,2}?)\s*[\[\(]?\s*([0-9IlOoDS]{1,2})\s*[:;.]\s*([0-9IlOoDS]{2,3})\s*[\]\)|Il1]?`)
 
-// Channel symbols as shown in game: ! green, @ purple, # $ % orange, ^ red.
-const channelSymbols = "!@#$%^"
+// Channel symbols as shown in game: ! green, * blue, @ purple, # $ % orange, ^ red.
+const channelSymbols = "!*@#$%^"
 
 var channelLookalikes = map[rune]rune{
 	'¡': '!', 'ǃ': '!', 'I': '!', '|': '!', 'l': '!', 'i': '!', '1': '!',

@@ -59,7 +59,7 @@ Config is stored in `ace-spy.json` next to the exe, and the log in `ace-spy.log`
 ### What gets pushed
 Only chat messages with the in-game structure `<channel>[hh:mm] [Name] text` are pushed. Wrapped lines are joined onto their message. Lines without a timestamp, and lines that don't read as Vietnamese (checked by syllable structure plus common chat abbreviations), are dropped as OCR noise. The server applies the same check, then drops fuzzy duplicates (diacritics ignored, ≥80% similar) received in the same region within `DEDUPE_SECONDS` (default 600).
 
-Channel symbols are normalised (`I`/`|` → `!`, `©` → `@`, `ˆ` → `^` …), and the website colours each channel: `!` green, `@` purple, `#` `$` `%` orange, `^` red.
+Channel symbols are normalised (`I`/`|` → `!`, `©` → `@`, `ˆ` → `^` …), and the website colours each channel: `!` green, `*` blue, `@` purple, `#` `$` `%` orange, `^` red.
 
 ### Notes and limits
 - Run the game in **windowed or borderless** mode. Exclusive fullscreen DirectX can capture as black.

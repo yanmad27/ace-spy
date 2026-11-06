@@ -9,6 +9,7 @@
   --bad: #dc2626;
   --hl: #fde68a;
   --ch-green: #15803d;
+  --ch-blue: #1d4ed8;
   --ch-purple: #7e22ce;
   --ch-orange: #c2410c;
   --ch-red: #b91c1c;
@@ -25,6 +26,7 @@
     --bad: #f87171;
     --hl: #854d0e;
     --ch-green: #4ade80;
+    --ch-blue: #60a5fa;
     --ch-purple: #c084fc;
     --ch-orange: #fb923c;
     --ch-red: #f87171;
@@ -119,6 +121,7 @@ h1 { font-size: 16px; margin: 0; }
 }
 .feed .text { overflow-wrap: anywhere; }
 .feed li.ch-green .text { color: var(--ch-green); }
+.feed li.ch-blue .text { color: var(--ch-blue); }
 .feed li.ch-purple .text { color: var(--ch-purple); }
 .feed li.ch-orange .text { color: var(--ch-orange); }
 .feed li.ch-red .text { color: var(--ch-red); }
