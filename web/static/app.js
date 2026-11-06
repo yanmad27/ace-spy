@@ -78,7 +78,7 @@ function row(m, showRegion) {
   const ch = CHANNELS[m.text.charAt(0)];
   if (ch && m.text.charAt(1) === "[") li.classList.add(ch);
   const d = new Date(m.ts);
-  li.title = `Nhận lúc ${dateFmt.format(d)} · ${m.client || "?"}${showRegion ? ` · ${m.region}` : ""}`;
+  li.title = `${m.text}\nNhận lúc ${dateFmt.format(d)} · ${m.client || "?"}${showRegion ? ` · ${m.region}` : ""}`;
   if (showRegion) {
     const tag = document.createElement("span");
     tag.className = "tag";
