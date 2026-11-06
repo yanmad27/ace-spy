@@ -15,7 +15,6 @@ const statusEl = $("#status");
 const searchEl = $("#search");
 const autoEl = $("#autoscroll");
 
-const timeFmt = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const dateFmt = new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "medium" });
 
 const state = { regions: [], streamFrom: 0, filter: "" };
@@ -62,31 +61,39 @@ function applyFilter(li) {
   li.classList.toggle("hidden", !!state.filter && !li.dataset.text.includes(state.filter));
 }
 
+// "*[14:11] [Name] [BC] text" -> channel, time, names, body.
+const MSG_RE = /^([!*@#$%^]?)\[(\d{2}:\d{2})\]((?:\s*\[[^\]]*\])*)\s*:?\s*([\s\S]*)$/;
+
+function formatted(text) {
+  const m = MSG_RE.exec(text);
+  if (!m) return null;
+  const groups = m[3].match(/\[[^\]]*\]/g) || [];
+  return { head: `${m[1]}[${m[2]}]`, player: groups[0] || "", place: groups.slice(1).join(""), body: m[4] };
+}
+
 function row(m, showRegion) {
   const li = document.createElement("li");
   li.dataset.id = m.id;
   li.dataset.text = m.text.toLowerCase();
   const ch = CHANNELS[m.text.charAt(0)];
   if (ch && m.text.charAt(1) === "[") li.classList.add(ch);
-  const t = document.createElement("time");
   const d = new Date(m.ts);
-  t.dateTime = d.toISOString();
-  t.textContent = timeFmt.format(d);
-  t.title = `${dateFmt.format(d)} · ${m.client || "?"}`;
-  li.append(t);
+  li.title = `Nhận lúc ${dateFmt.format(d)} · ${m.client || "?"}${showRegion ? ` · ${m.region}` : ""}`;
   if (showRegion) {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = m.region;
     li.append(tag);
-  } else {
-    li.classList.add("no-tag");
   }
-  const text = document.createElement("span");
-  text.className = "text";
-  text.dataset.raw = m.text;
-  highlight(text, m.text);
-  li.append(text);
+  const f = formatted(m.text);
+  const parts = f ? [["head", f.head], ["player", f.player], ["place", f.place], ["sep", ": "], ["text", f.body]] : [["text", m.text]];
+  for (const [cls, value] of parts) {
+    const span = document.createElement("span");
+    span.className = cls;
+    span.dataset.raw = value;
+    highlight(span, value);
+    li.append(span);
+  }
   applyFilter(li);
   return li;
 }
@@ -260,8 +267,7 @@ searchEl.addEventListener("input", () => {
     for (const p of panes) {
       for (const li of p.feed.children) {
         applyFilter(li);
-        const t = li.querySelector(".text");
-        highlight(t, t.dataset.raw);
+        for (const span of li.querySelectorAll("[data-raw]")) highlight(span, span.dataset.raw);
       }
     }
   }, 150);
