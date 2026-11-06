@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "go",
+  "crons": [{ "path": "/api/cron/prune", "schedule": "0 3 * * *" }]
+}

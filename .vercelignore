@@ -1,0 +1,7 @@
+dist
+*.exe
+cmd/ace-spy
+internal/ui
+internal/picker
+internal/screen
+internal/winocr

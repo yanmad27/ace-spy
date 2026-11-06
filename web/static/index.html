@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ace Spy</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Ace Spy</h1>
+    <span id="status" class="status offline">offline</span>
+    <input id="search" type="search" placeholder="Filter text…" autocomplete="off">
+    <label class="toggle"><input id="autoscroll" type="checkbox" checked> Auto-scroll</label>
+  </header>
+  <div class="layout">
+    <nav id="regions" aria-label="Regions"></nav>
+    <main>
+      <button id="older" type="button">Load older</button>
+      <ol id="feed"></ol>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
