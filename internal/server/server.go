@@ -162,7 +162,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	}
 	total := len(req.Messages)
 	if len(msgs) == 0 {
-		writeJSON(w, http.StatusOK, map[string]int{"accepted": 0, "duplicates": total})
+		writeJSON(w, http.StatusOK, map[string]int{"accepted": 0, "dropped": total})
 		return
 	}
 	stored, err := s.store.Insert(r.Context(), msgs)
@@ -171,7 +171,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"accepted": len(stored), "duplicates": total - len(stored)})
+	writeJSON(w, http.StatusOK, map[string]int{"accepted": len(stored), "dropped": total - len(stored)})
 }
 
 const dedupeLookback = 500
