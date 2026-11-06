@@ -23,11 +23,14 @@ type Engine struct {
 	lang     string
 }
 
-// LangCode maps a BCP-47 tag to a Tesseract language code.
+// LangCode maps a BCP-47 tag to a Tesseract language code. Vietnamese is paired
+// with English: players type a lot of unaccented teencode, which the Vietnamese
+// model alone "corrects" into wrong diacritics (measured on real game frames:
+// exact lines 25/66 with vie, 35/66 with vie+eng).
 func LangCode(lang string) string {
 	switch strings.ToLower(strings.TrimSpace(lang)) {
 	case "vi", "vi-vn":
-		return "vie"
+		return "vie+eng"
 	case "en", "en-us", "en-gb":
 		return "eng"
 	}
@@ -42,20 +45,25 @@ func New(exeOverride, appDir, lang string) (*Engine, error) {
 		return nil, err
 	}
 	e := &Engine{exe: exe, lang: LangCode(lang)}
-	if dir := filepath.Join(appDir, "tessdata"); fileExists(filepath.Join(dir, e.lang+".traineddata")) {
+	need := strings.Split(e.lang, "+")
+	if dir := filepath.Join(appDir, "tessdata"); fileExists(filepath.Join(dir, need[0]+".traineddata")) {
 		e.tessdata = dir
 	}
 	langs, err := e.listLangs()
 	if err != nil {
 		return nil, err
 	}
+	have := map[string]bool{}
 	for _, l := range langs {
-		if l == e.lang {
-			return e, nil
+		have[l] = true
+	}
+	for _, l := range need {
+		if !have[l] {
+			return nil, fmt.Errorf("tesseract at %s has no %q language data (have: %s). Put %s.traineddata in %s",
+				exe, l, strings.Join(langs, ", "), l, filepath.Join(appDir, "tessdata"))
 		}
 	}
-	return nil, fmt.Errorf("tesseract at %s has no %q language data (have: %s). Put %s.traineddata in %s",
-		exe, e.lang, strings.Join(langs, ", "), e.lang, filepath.Join(appDir, "tessdata"))
+	return e, nil
 }
 
 func (e *Engine) Exe() string { return e.exe }

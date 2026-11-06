@@ -126,10 +126,60 @@ func resize(g *image.Gray, f float64) *image.Gray {
 	return out
 }
 
+// splitRows cuts a black-on-white image into text rows using the horizontal projection.
+func splitRows(g *image.Gray) []*image.Gray {
+	w, h := g.Rect.Dx(), g.Rect.Dy()
+	ink := make([]bool, h)
+	for y := 0; y < h; y++ {
+		n := 0
+		for x := 0; x < w; x++ {
+			if g.Pix[y*w+x] < 128 {
+				n++
+			}
+		}
+		ink[y] = n > 0
+	}
+	var rows []*image.Gray
+	for y := 0; y < h; {
+		if !ink[y] {
+			y++
+			continue
+		}
+		y0 := y
+		for y < h && ink[y] {
+			y++
+		}
+		if y-y0 < 6 {
+			continue
+		}
+		top, bot := max(y0-4, 0), min(y+4, h)
+		r := image.NewGray(image.Rect(0, 0, w, bot-top+8))
+		for i := range r.Pix {
+			r.Pix[i] = 255
+		}
+		for yy := top; yy < bot; yy++ {
+			copy(r.Pix[(yy-top+4)*w:(yy-top+5)*w], g.Pix[yy*w:(yy+1)*w])
+		}
+		rows = append(rows, r)
+	}
+	return rows
+}
+
 func tess(t *testing.T, tessdata string, g *image.Gray, psm string) []string {
+	if psm == "lines" {
+		var out []string
+		for _, r := range splitRows(g) {
+			out = append(out, tess(t, tessdata, r, "7")...)
+		}
+		return out
+	}
 	var buf bytes.Buffer
 	png.Encode(&buf, g)
-	cmd := exec.Command("tesseract", "--tessdata-dir", tessdata, "stdin", "stdout", "-l", "vie", "--oem", "1", "--psm", psm)
+	lang := "vie"
+	if i := strings.Index(psm, "|"); i >= 0 {
+		psm, lang = psm[:i], psm[i+1:]
+	}
+	cmd := exec.Command("tesseract", "--tessdata-dir", tessdata, "stdin", "stdout", "-l", lang, "--oem", "1", "--psm", psm)
 	cmd.Stdin = &buf
 	out, err := cmd.Output()
 	if err != nil {
@@ -180,10 +230,23 @@ func TestRealSamples(t *testing.T) {
 		}
 	}
 	vs = append(vs, variant{"PRODUCTION Preprocess", Preprocess, "6"})
+	vs = append(vs, variant{"prod vie+eng", Preprocess, "6|vie+eng"})
+	vs = append(vs, variant{"x2.0 vie+eng", func(pix []byte, w, h int) *image.Gray {
+		return invDark(otsuBin(resize(grayOf(pix, w, h, maxRG), 2.0)))
+	}, "6|vie+eng"})
+	vs = vs[len(vs)-3:]
+	for _, sc := range []float64{2.0, 2.5} {
+		sc := sc
+		vs = append(vs, variant{fmt.Sprintf("maxRG x%.1f bin", sc), func(pix []byte, w, h int) *image.Gray {
+			g := resize(grayOf(pix, w, h, maxRG), sc)
+			return invDark(otsuBin(g))
+		}, "6"})
+	}
+	vs = append(vs, variant{"prod per-line psm7", Preprocess, "lines"})
 	type res struct {
-		name           string
-		lineHit, msgOK int
-		avg            float64
+		name                             string
+		lineHit, msgOK, exact, exactBook int
+		avg                              float64
 	}
 	var all []res
 	total := 0
@@ -196,6 +259,9 @@ func TestRealSamples(t *testing.T) {
 			pix, w, h := loadBGRA(t, strings.TrimSuffix(tf, ".txt")+".png", 1)
 			lines := tess(t, data+"/tessdata", v.f(pix, w, h), v.psm)
 			msgs := chatparse.Messages(lines)
+			book := chatparse.NewNameBook()
+			book.Messages(lines) // a previous frame of the same chat
+			corrected := book.Messages(lines)
 			for _, wl := range want {
 				total++
 				s := bestSim(lines, wl)
@@ -205,6 +271,25 @@ func TestRealSamples(t *testing.T) {
 				}
 				if bestSim(msgs, wl) >= 0.8 {
 					r.msgOK++
+				}
+				if bestSim(msgs, wl) >= 0.97 {
+					r.exact++
+				}
+				if bestSim(corrected, wl) >= 0.97 {
+					r.exactBook++
+				}
+			}
+			if os.Getenv("DUMPX") == v.name {
+				for _, wl := range want {
+					best, bl := 0.0, ""
+					for _, l := range corrected {
+						if s := sim(l, wl); s > best {
+							best, bl = s, l
+						}
+					}
+					if best < 0.97 {
+						t.Logf("X want=%q\n    got =%q", wl, bl)
+					}
 				}
 			}
 			if os.Getenv("DUMP") == v.name {
@@ -228,6 +313,6 @@ func TestRealSamples(t *testing.T) {
 		return all[i].msgOK > all[j].msgOK || all[i].msgOK == all[j].msgOK && all[i].avg > all[j].avg
 	})
 	for _, r := range all {
-		t.Logf("%-28s lines≥0.85: %2d/%d  pushed≈truth: %2d/%d  avgSim=%.3f", r.name, r.lineHit, total, r.msgOK, total, r.avg)
+		t.Logf("%-24s lines≥0.85: %2d/%d  pushed≈truth: %2d  exact: %2d  exact+corrections: %2d  avgSim=%.3f", r.name, r.lineHit, total, r.msgOK, r.exact, r.exactBook, r.avg)
 	}
 }

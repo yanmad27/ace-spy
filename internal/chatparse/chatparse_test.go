@@ -156,3 +156,15 @@ func TestMessagesKeepsShortChat(t *testing.T) {
 		}
 	}
 }
+
+func TestFixNumbers(t *testing.T) {
+	cases := map[string]string{
+		"30D cay 3u": "300 cay 3u", "1m wp = 4Dk atm": "1m wp = 40k atm", "DP - 10D = 16D DP": "DP - 100 = 160 DP",
+		"MUA DP ai ban": "MUA DP ai ban", "Do 20m": "Do 20m", "giáp 8x 300": "giáp 8x 300",
+	}
+	for in, want := range cases {
+		if got := fixNumbers(in); got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+	}
+}

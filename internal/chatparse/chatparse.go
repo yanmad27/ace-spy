@@ -68,11 +68,21 @@ func splitMerged(line string) []string {
 // Messages assembles visible OCR lines (top to bottom) into meaningful messages.
 // Only text that starts with a "[hh:mm]" header (plus its wrapped lines) is kept.
 func Messages(lines []string) []string {
-	var out []string
+	msgs := assemble(lines)
+	out := make([]string, len(msgs))
+	for i, m := range msgs {
+		out[i] = m.String()
+	}
+	return out
+}
+
+func assemble(lines []string) []*message {
+	var out []*message
 	var cur *message
 	flush := func() {
 		if cur != nil && cur.meaningful() {
-			out = append(out, cur.String())
+			cur.body = fixNumbers(cur.body)
+			out = append(out, cur)
 		}
 		cur = nil
 	}
@@ -108,6 +118,15 @@ type message struct {
 	hh, mm  string
 	names   []string
 	body    string
+}
+
+// Inside numbers the game font's 0 is often read as D or O ("30D", "4Dk").
+var zeroLikeRe = regexp.MustCompile(`\b\d+[DOo][\dDOo]*(?:k|m|tr)?\b|\b\d*[DOo]\d+[\dDOo]*(?:k|m|tr)?\b`)
+
+func fixNumbers(s string) string {
+	return zeroLikeRe.ReplaceAllStringFunc(s, func(tok string) string {
+		return strings.NewReplacer("D", "0", "O", "0", "o", "0").Replace(tok)
+	})
 }
 
 func (m *message) String() string {
