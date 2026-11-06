@@ -20,15 +20,17 @@ import (
 	"github.com/yanmad27/ace-spy/internal/runner"
 	"github.com/yanmad27/ace-spy/internal/screen"
 	"github.com/yanmad27/ace-spy/internal/tesseract"
+	"github.com/yanmad27/ace-spy/internal/updater"
 	"github.com/yanmad27/ace-spy/internal/winocr"
 )
 
 const maxLogLines = 400
 
 type app struct {
-	version string
-	cfgPath string
-	cfg     config.Config
+	version   string
+	autostart bool
+	cfgPath   string
+	cfg       config.Config
 
 	mw        *walk.MainWindow
 	serverEd  *walk.LineEdit
@@ -52,12 +54,12 @@ type app struct {
 	stopped chan struct{}
 }
 
-func Run(cfgPath, version string) error {
+func Run(cfgPath, version string, autostart bool) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
 	}
-	a := &app{version: version, cfgPath: cfgPath, cfg: cfg, model: &regionModel{rows: cfg.Regions, last: map[string]string{}}}
+	a := &app{version: version, autostart: autostart, cfgPath: cfgPath, cfg: cfg, model: &regionModel{rows: cfg.Regions, last: map[string]string{}}}
 	return a.run()
 }
 
@@ -139,7 +141,12 @@ func (a *app) run() error {
 		a.engineMu.Unlock()
 	})
 
-	a.logf("Config: %s", a.cfgPath)
+	a.logf("Ace Spy %s — config: %s", a.version, a.cfgPath)
+	updater.Cleanup(filepath.Dir(a.cfgPath))
+	if a.autostart {
+		a.start()
+	}
+	go a.autoUpdate()
 	a.mw.Run()
 	return nil
 }

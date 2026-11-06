@@ -1,15 +1,27 @@
 name: Release
 
+# Pushing client code to main publishes the next patch version automatically
+# (installed clients self-update from it). Pushing a vX.Y.Z tag still works too.
 on:
   push:
+    branches: [main]
     tags:
       - 'v[0-9]*.[0-9]*.[0-9]*'
+    paths:
+      - 'cmd/ace-spy/**'
+      - 'internal/**'
+      - '!internal/server/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'build-client.sh'
+      - 'scripts/**'
+      - '.github/workflows/release.yml'
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -19,8 +31,24 @@ jobs:
     defaults:
       run:
         shell: bash
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            last="$(git tag --sort=-v:refname | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | head -1)"
+            IFS=. read -r major minor patch <<< "${last#v}"
+            version="${major:-0}.${minor:-1}.$(( ${patch:--1} + 1 ))"
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "Releasing v$version"
 
       - uses: actions/setup-go@v6
         with:
@@ -33,8 +61,7 @@ jobs:
       - name: Build
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          ./build-client.sh "$version"
+          ./build-client.sh "$VERSION"
           ./scripts/bundle-tesseract.sh
 
       - name: Test (Windows OCR, bundled Tesseract)
@@ -45,8 +72,7 @@ jobs:
       - name: Package
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          zip="ace-spy-${version}-windows-amd64.zip"
+          zip="ace-spy-${VERSION}-windows-amd64.zip"
           (cd dist && 7z a -tzip -mx=9 "$zip" ace-spy.exe ace-spy.exe.manifest tesseract tessdata >/dev/null && sha256sum "$zip" > SHA256SUMS.txt)
 
       - name: Publish release
@@ -54,7 +80,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/ace-spy-${version}-windows-amd64.zip" dist/SHA256SUMS.txt \
-            --title "ace-spy $GITHUB_REF_NAME" --generate-notes --verify-tag
+          tag="v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then target=(--verify-tag); else target=(--target "$GITHUB_SHA"); fi
+          gh release create "$tag" \
+            "dist/ace-spy-${VERSION}-windows-amd64.zip" dist/SHA256SUMS.txt \
+            --title "ace-spy $tag" --generate-notes "${target[@]}"

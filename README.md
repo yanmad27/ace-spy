@@ -36,9 +36,12 @@ Self-hosting works too: `docker build -t ace-spy-server .`, then run it with the
 
 API: `GET /api/messages?region=&before=<id>|after=<id>&limit=`, `GET /api/regions`.
 
-## Releases
+## Releases and auto-update
 
-Run `./release.sh [x.y.z]` from a clean, pushed `main`. It tags `vX.Y.Z`, and GitHub Actions (`.github/workflows/release.yml`) then tests, builds and publishes `ace-spy-X.Y.Z-windows-amd64.zip` to GitHub Releases.
+Everything deploys automatically on `git push` to `main`:
+- **Website/server:** Vercel redeploys from Git.
+- **Windows client:** if the push touches client code, `.github/workflows/release.yml` bumps the patch version, tests on Windows and publishes `ace-spy-X.Y.Z-windows-amd64.zip`. Put `[skip release]` in the commit message to skip it. `./release.sh x.y.z` still works for a specific version.
+- **Installed clients** check GitHub Releases at startup and every 30 minutes. A newer version is downloaded, verified against `SHA256SUMS.txt`, swapped in next to the exe, and restarted; capture resumes if it was running. Config (`ace-spy.json`) is kept.
 
 ## Client (Windows 10/11)
 

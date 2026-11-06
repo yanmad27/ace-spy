@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -20,13 +21,29 @@ var version = "dev"
 // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 so capture coordinates are physical pixels.
 const dpiPerMonitorV2 = ^uintptr(3)
 
+func hasArg(flag string) bool {
+	for _, a := range os.Args[1:] {
+		if a == flag {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
 	if procSetProcessDpiAwarenessContext.Find() == nil {
 		procSetProcessDpiAwarenessContext.Call(dpiPerMonitorV2)
 	}
 
+	updated, autostart := hasArg("--updated"), hasArg("--start")
 	name, _ := windows.UTF16PtrFromString(`Local\ace-spy-instance`)
 	mutex, err := windows.CreateMutex(nil, true, name)
+	// After a self-update the previous instance is still exiting; wait for it.
+	for i := 0; updated && err == windows.ERROR_ALREADY_EXISTS && i < 50; i++ {
+		windows.CloseHandle(mutex)
+		time.Sleep(200 * time.Millisecond)
+		mutex, err = windows.CreateMutex(nil, true, name)
+	}
 	if err == windows.ERROR_ALREADY_EXISTS {
 		msg, _ := windows.UTF16PtrFromString("Ace Spy is already running.")
 		title, _ := windows.UTF16PtrFromString("Ace Spy")
@@ -45,7 +62,7 @@ func main() {
 		defer f.Close()
 	}
 
-	if err := ui.Run(filepath.Join(dir, "ace-spy.json"), version); err != nil {
+	if err := ui.Run(filepath.Join(dir, "ace-spy.json"), version, autostart); err != nil {
 		log.Printf("fatal: %v", err)
 		msg, _ := windows.UTF16PtrFromString(err.Error())
 		title, _ := windows.UTF16PtrFromString("Ace Spy")
