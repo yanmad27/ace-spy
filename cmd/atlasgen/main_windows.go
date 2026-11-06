@@ -28,6 +28,8 @@ type glyph struct {
 	Adv      int      `json:"adv"`
 	Cols     []uint32 `json:"cols"`
 	Overhang bool     `json:"overhang"`
+	// Ink right of the advance (e.g. the horn of ư), drawn into the next glyph's cell.
+	Over []uint32 `json:"over,omitempty"`
 }
 
 type canvas struct {
@@ -92,6 +94,18 @@ func main() {
 				}
 			}
 			g.Cols = append(g.Cols, v)
+		}
+		for x := pad + adv; x < pad+adv+4; x++ {
+			var v uint32
+			for y := 0; y < cellH; y++ {
+				if c.on(x, y) {
+					v |= 1 << y
+				}
+			}
+			g.Over = append(g.Over, v)
+		}
+		for len(g.Over) > 0 && g.Over[len(g.Over)-1] == 0 {
+			g.Over = g.Over[:len(g.Over)-1]
 		}
 		for x := 0; x < c.w; x++ {
 			if x >= pad && x < pad+adv {

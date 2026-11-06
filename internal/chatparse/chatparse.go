@@ -188,7 +188,7 @@ func parseHeader(line string) (*message, bool) {
 		}
 		rest = rest[g[1]:]
 	}
-	m.body = strings.TrimLeft(strings.TrimSpace(rest), ".,:;|`'\"")
+	m.body = strings.TrimLeft(strings.TrimSpace(rest), ".,|`'\"")
 	m.body = strings.TrimSpace(m.body)
 	return m, true
 }
