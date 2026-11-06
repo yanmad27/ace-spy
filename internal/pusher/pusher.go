@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"strings"
@@ -21,6 +23,8 @@ const (
 	minBackoff   = time.Second
 	maxBackoff   = 30 * time.Second
 	requestLimit = 15 * time.Second
+	// base64 inflates by 4/3; stay under the 4 MB server limit.
+	maxSampleBytes = 2900 << 10
 )
 
 type Message struct {
@@ -35,11 +39,12 @@ type payload struct {
 }
 
 type Pusher struct {
-	endpoint string
-	token    string
-	client   string
-	http     *http.Client
-	onStatus func(string)
+	endpoint   string
+	samplesURL string
+	token      string
+	client     string
+	http       *http.Client
+	onStatus   func(string)
 
 	mu      sync.Mutex
 	queue   []Message
@@ -51,13 +56,15 @@ func New(serverURL, token, clientName string, onStatus func(string)) *Pusher {
 	if onStatus == nil {
 		onStatus = func(string) {}
 	}
+	base := strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	return &Pusher{
-		endpoint: strings.TrimRight(strings.TrimSpace(serverURL), "/") + "/api/ingest",
-		token:    strings.TrimSpace(token),
-		client:   clientName,
-		http:     &http.Client{Timeout: requestLimit},
-		onStatus: onStatus,
-		notify:   make(chan struct{}, 1),
+		endpoint:   base + "/api/ingest",
+		samplesURL: base + "/api/samples",
+		token:      strings.TrimSpace(token),
+		client:     clientName,
+		http:       &http.Client{Timeout: requestLimit},
+		onStatus:   onStatus,
+		notify:     make(chan struct{}, 1),
 	}
 }
 
@@ -130,6 +137,42 @@ func (p *Pusher) ack(n int) {
 	p.mu.Lock()
 	p.queue = p.queue[n:]
 	p.mu.Unlock()
+}
+
+// UploadSample sends a captured chat image (BGRA) with its raw OCR lines, so OCR
+// can be tuned against real game frames.
+func (p *Pusher) UploadSample(ctx context.Context, region string, bgra []byte, w, h int, ocr []string) error {
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for i := 0; i+3 < len(bgra) && i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = bgra[i+2], bgra[i+1], bgra[i], 255
+	}
+	var buf bytes.Buffer
+	if err := (&png.Encoder{CompressionLevel: png.BestCompression}).Encode(&buf, img); err != nil {
+		return err
+	}
+	if buf.Len() > maxSampleBytes {
+		return fmt.Errorf("sample image too large (%d bytes); lower the upscale", buf.Len())
+	}
+	body, err := json.Marshal(map[string]any{"client": p.client, "region": region, "ocr": ocr, "png": buf.Bytes()})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.samplesURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.token)
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return nil
 }
 
 // post returns retry=false for permanent rejections (malformed payload).

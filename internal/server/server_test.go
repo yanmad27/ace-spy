@@ -27,7 +27,7 @@ func newTestServer(t *testing.T, opts Options) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(store.Close)
-	if _, err := store.pool.Exec(ctx, `TRUNCATE messages RESTART IDENTITY`); err != nil {
+	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples RESTART IDENTITY`); err != nil {
 		t.Fatal(err)
 	}
 	opts.IngestToken = token
@@ -105,6 +105,46 @@ func TestIngestDropsNoiseAndFuzzyDuplicates(t *testing.T) {
 	getJSON(t, srv.URL+"/api/messages", &msgs)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %+v", msgs)
+	}
+}
+
+func TestSamplesRequireTokenAndRoundTrip(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+	body := `{"client":"pc","region":"BCU","ocr":["[14:11] [A] xin chào"],"png":"` + png + `"}`
+	if r := do(t, "POST", srv.URL+"/api/samples", "", body); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", r.StatusCode)
+	}
+	if r := do(t, "POST", srv.URL+"/api/samples", "Bearer "+token, `{"region":"BCU","png":"aGVsbG8="}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("non-PNG: expected 400, got %d", r.StatusCode)
+	}
+	if r := do(t, "POST", srv.URL+"/api/samples", "Bearer "+token, body); r.StatusCode != http.StatusOK {
+		t.Fatalf("upload: %d", r.StatusCode)
+	}
+	if r := do(t, "GET", srv.URL+"/api/samples", "", ""); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("list without token: %d", r.StatusCode)
+	}
+	req, _ := http.NewRequest("GET", srv.URL+"/api/samples?region=BCU", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []Sample
+	json.NewDecoder(resp.Body).Decode(&list)
+	resp.Body.Close()
+	if len(list) != 1 || list[0].OCR != "[14:11] [A] xin chào" {
+		t.Fatalf("list: %+v", list)
+	}
+	req, _ = http.NewRequest("GET", srv.URL+"/api/samples/"+itoa(list[0].ID)+".png", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("png: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
 }
 

@@ -114,3 +114,28 @@ func TestKeyFoldsDiacritics(t *testing.T) {
 		t.Fatalf("%q != %q", a, b)
 	}
 }
+
+// Real production lines where OCR merged several messages into one line.
+func TestMessagesSplitsMergedLines(t *testing.T) {
+	got := Messages([]string{
+		"[14:11] [Tổng tư lệnh] [ValHellsing] icshay røpi | *l14:11]I©astlerCaromadn] [LAO MØOC] con gà này =))) | *l14:1Z] [Castle.Cgronada] [LAO MØC] sáng giờ bị đấm cho mấy mạng cả AG lắn MG",
+	})
+	want := []string{
+		"*[14:11] [©astlerCaromadn] [LAO MØOC] con gà này =)))",
+		"*[14:12] [Castle.Cgronada] [LAO MØC] sáng giờ bị đấm cho mấy mạng cả AG lắn MG",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMessagesRejectsOwnLogEcho(t *testing.T) {
+	got := Messages([]string{"[14:16] 43 [ANI] [14:12] [Castle] cay để bụng là có thật"})
+	want := []string{"[14:12] [Castle] cay để bụng là có thật"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
+	}
+	if Acceptable("[14:16] 48 [ANI] [14:12] [Castle] cay để bụng là có thật") {
+		t.Fatal("log echo accepted")
+	}
+}

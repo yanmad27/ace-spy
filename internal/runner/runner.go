@@ -33,7 +33,11 @@ type Sink interface {
 type Events struct {
 	OnLines func(regionID string, visible []string, fresh []string)
 	OnError func(regionID string, err error)
+	// OnSample receives a captured frame and its raw OCR lines every SampleEvery.
+	OnSample func(reg config.Region, bgra []byte, w, h int, ocr []string)
 }
+
+const SampleEvery = 15 * time.Minute
 
 type Runner struct {
 	newGrabber GrabberFactory
@@ -78,11 +82,12 @@ func (r *Runner) loop(ctx context.Context, reg config.Region) {
 
 	var tracker chatdiff.Tracker
 	var lastHash uint64
+	var lastSample time.Time
 	ticker := time.NewTicker(time.Duration(reg.IntervalMs) * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
-		if err := r.tick(reg, g, &tracker, &lastHash); err != nil {
+		if err := r.tick(reg, g, &tracker, &lastHash, &lastSample); err != nil {
 			r.events.OnError(reg.ID, err)
 		}
 		select {
@@ -93,7 +98,7 @@ func (r *Runner) loop(ctx context.Context, reg config.Region) {
 	}
 }
 
-func (r *Runner) tick(reg config.Region, g Grabber, tracker *chatdiff.Tracker, lastHash *uint64) error {
+func (r *Runner) tick(reg config.Region, g Grabber, tracker *chatdiff.Tracker, lastHash *uint64, lastSample *time.Time) error {
 	pix, w, h, err := g.Grab()
 	if err != nil {
 		return fmt.Errorf("capture: %w", err)
@@ -109,6 +114,10 @@ func (r *Runner) tick(reg config.Region, g Grabber, tracker *chatdiff.Tracker, l
 		return fmt.Errorf("ocr: %w", err)
 	}
 	*lastHash = sum
+	if r.events.OnSample != nil && time.Since(*lastSample) >= SampleEvery {
+		*lastSample = time.Now()
+		r.events.OnSample(reg, pix, w, h, lines)
+	}
 	msgs := chatparse.Messages(lines)
 	fresh := tracker.Feed(msgs)
 	r.events.OnLines(reg.ID, msgs, fresh)

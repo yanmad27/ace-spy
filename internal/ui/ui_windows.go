@@ -337,6 +337,16 @@ func (a *app) testSelected() {
 		method = wg.Method()
 	}
 	msgs := chatparse.Messages(lines)
+	a.readFields()
+	go func(cfg config.Config) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := pusher.New(cfg.ServerURL, cfg.Token, cfg.ClientName, nil).UploadSample(ctx, r.Label, pix, w, h, lines); err != nil {
+			a.asyncLogf("[%s] sample upload failed: %v", r.Label, err)
+		} else {
+			a.asyncLogf("[%s] sample uploaded for OCR tuning", r.Label)
+		}
+	}(a.cfg)
 	text = fmt.Sprintf("Raw OCR:\r\n%s\r\n\r\nMessages that will be pushed (%d):\r\n%s", text, len(msgs), strings.Join(msgs, "\r\n"))
 	walk.MsgBox(a.mw, fmt.Sprintf("OCR: %s (capture: %s, %s)", r.Label, method, time.Since(start).Round(time.Millisecond)), text, walk.MsgBoxOK)
 }
@@ -414,6 +424,15 @@ func (a *app) start() {
 				})
 			},
 			OnError: func(id string, err error) { a.asyncLogf("[%s] %v", labels[id], err) },
+			OnSample: func(reg config.Region, pix []byte, w, h int, ocr []string) {
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+					defer cancel()
+					if err := p.UploadSample(ctx, reg.Label, pix, w, h, ocr); err != nil {
+						a.asyncLogf("[%s] sample upload failed: %v", reg.Label, err)
+					}
+				}()
+			},
 		},
 	)
 

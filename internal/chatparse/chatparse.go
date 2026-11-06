@@ -13,7 +13,7 @@ import (
 // A chat line is "<channel>[hh:mm] [Name] text", e.g. "![11:05] [Diana] ...".
 // OCR often misreads the channel symbol, brackets and digits ("I[11:05)", "[11:2D]",
 // "$l1:05]"), so the pattern is loose.
-var timestampRe = regexp.MustCompile(`^\s*(\S{0,2}?)\s*[\[\(]?\s*([0-9IlOoDS]{1,2})\s*[:;.]\s*([0-9IlOoDS]{2,3})\s*[\]\)|Il1]?`)
+var timestampRe = regexp.MustCompile(`^\s*(\S{0,2}?)\s*[\[\(]?\s*([0-9IlOoDSZ]{1,2})\s*[:;.]\s*([0-9IlOoDSZ]{2,3})\s*[\]\)|Il1]?`)
 
 // Channel symbols as shown in game: ! green, * blue, @ purple, # $ % orange, ^ red.
 const channelSymbols = "!*@#$%^"
@@ -41,9 +41,29 @@ func channelOf(prefix string) string {
 }
 
 // Header groups such as "[Tổng tư lệnh] [valHellsing]" or "IANTD-HID]" right after the timestamp.
-var nameGroupRe = regexp.MustCompile(`^\s*[\[\(|Il]?([^\[\]\(\)]{1,32})[\]\)]`)
+var nameGroupRe = regexp.MustCompile(`^\s*[\[\(|Il]?([^\[\]\(\)]{1,32})\]`)
 
-var digitFix = strings.NewReplacer("I", "1", "l", "1", "O", "0", "o", "0", "D", "0", "S", "5")
+var digitFix = strings.NewReplacer("I", "1", "l", "1", "O", "0", "o", "0", "D", "0", "S", "5", "Z", "2")
+
+// A second header inside one OCR line (lines merged by OCR), e.g. "… | *l14:1Z] [Name] …".
+var midHeaderRe = regexp.MustCompile(`\s(?:\|\s*)?([*!@#$%^]?[\[(]?[|Il]?[0-9IlOoDSZ]{2}\s*[:;]\s*[0-9IlOoDSZ]{2}\s*[\])])`)
+
+// Ace Spy's own log ("14:16:43 [ANI] …") read back by OCR looks like "[14:16] 43 [ANI] …".
+var logEchoRe = regexp.MustCompile(`^\d{1,2}\s*\[`)
+
+// splitMerged splits a line wherever another message header starts.
+func splitMerged(line string) []string {
+	var parts []string
+	start := 0
+	for _, m := range midHeaderRe.FindAllStringSubmatchIndex(line, -1) {
+		if m[2] <= start {
+			continue
+		}
+		parts = append(parts, strings.TrimRight(strings.TrimSpace(line[start:m[2]]), " |"))
+		start = m[2]
+	}
+	return append(parts, strings.TrimSpace(line[start:]))
+}
 
 // Messages assembles visible OCR lines (top to bottom) into meaningful messages.
 // Only text that starts with a "[hh:mm]" header (plus its wrapped lines) is kept.
@@ -56,8 +76,11 @@ func Messages(lines []string) []string {
 		}
 		cur = nil
 	}
+	var split []string
 	for _, raw := range lines {
-		line := clean(raw)
+		split = append(split, splitMerged(clean(raw))...)
+	}
+	for _, line := range split {
 		if line == "" {
 			continue
 		}
@@ -100,8 +123,8 @@ func (m *message) String() string {
 }
 
 func (m *message) meaningful() bool {
-	if strings.HasPrefix(m.body, "[") {
-		return false // unclosed name bracket: the header was cut or misread
+	if strings.HasPrefix(m.body, "[") || logEchoRe.MatchString(m.body) {
+		return false // unclosed name bracket, or our own log read back
 	}
 	st := score(m.body)
 	enough := st.valid >= 2 || (st.words == 1 && st.valid == 1 && st.longest >= 3)
@@ -169,7 +192,11 @@ func isMeaningfulLine(line string) bool {
 // Acceptable reports whether a single pushed text is a well-formed, meaningful
 // "<channel>[hh:mm] [Name] text" chat message.
 func Acceptable(s string) bool {
-	m, ok := parseHeader(clean(s))
+	line := clean(s)
+	if len(splitMerged(line)) != 1 {
+		return false
+	}
+	m, ok := parseHeader(line)
 	return ok && m.meaningful()
 }
 

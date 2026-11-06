@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -54,6 +55,9 @@ func New(store *Store, static fs.FS, opts Options) http.Handler {
 	mux.Handle("GET /api/messages", s.viewAuth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/regions", s.viewAuth(http.HandlerFunc(s.regions)))
 	mux.HandleFunc("GET /api/cron/prune", s.cronPrune)
+	mux.HandleFunc("POST /api/samples", s.ingestAuth(s.addSample))
+	mux.HandleFunc("GET /api/samples", s.ingestAuth(s.listSamples))
+	mux.HandleFunc("GET /api/samples/{id}", s.ingestAuth(s.samplePNG))
 	mux.Handle("GET /", s.viewAuth(http.FileServerFS(static)))
 	return securityHeaders(mux)
 }
@@ -95,9 +99,86 @@ type ingestRequest struct {
 	} `json:"messages"`
 }
 
-func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
+func (s *Server) validIngestToken(r *http.Request) bool {
 	token, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !found || subtle.ConstantTimeCompare([]byte(token), []byte(s.opts.IngestToken)) != 1 {
+	return found && subtle.ConstantTimeCompare([]byte(token), []byte(s.opts.IngestToken)) == 1
+}
+
+func (s *Server) ingestAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.validIngestToken(r) {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+const maxSampleBytes = 4 << 20 // Vercel limits request bodies to 4.5 MB
+
+func (s *Server) addSample(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSampleBytes)
+	var req struct {
+		Client string   `json:"client"`
+		Region string   `json:"region"`
+		OCR    []string `json:"ocr"`
+		PNG    []byte   `json:"png"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	region, err := clean(req.Region, maxRegionRunes, false)
+	if err != nil {
+		http.Error(w, "region: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	client, _ := clean(req.Client, maxClientRunes, true)
+	if !bytes.HasPrefix(req.PNG, []byte("\x89PNG\r\n\x1a\n")) {
+		http.Error(w, "png: not a PNG image", http.StatusBadRequest)
+		return
+	}
+	ocr := strings.Join(req.OCR, "\n")
+	if len(ocr) > 64<<10 {
+		ocr = ocr[:64<<10]
+	}
+	id, err := s.store.AddSample(r.Context(), Sample{Client: client, Region: region, CreatedAt: time.Now().UnixMilli(), OCR: ocr}, req.PNG)
+	if err != nil {
+		log.Printf("sample: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"id": id})
+}
+
+func (s *Server) listSamples(w http.ResponseWriter, r *http.Request) {
+	list, err := s.store.Samples(r.Context(), r.URL.Query().Get("region"), parseLimit(r.URL.Query().Get("limit")))
+	if err != nil {
+		log.Printf("samples: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) samplePNG(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(strings.TrimSuffix(r.PathValue("id"), ".png"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	png, err := s.store.SamplePNG(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Write(png)
+}
+
+func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
+	if !s.validIngestToken(r) {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}

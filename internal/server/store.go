@@ -46,6 +46,16 @@ DROP INDEX IF EXISTS idx_messages_dedupe;
 CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
 -- No policies: blocks Supabase/PostgREST anon access; the owning role used by this server is exempt.
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS samples (
+	id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	client     TEXT   NOT NULL,
+	region     TEXT   NOT NULL,
+	created_at BIGINT NOT NULL,
+	ocr        TEXT   NOT NULL,
+	png        BYTEA  NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_samples_region_id ON samples(region, id);
+ALTER TABLE samples ENABLE ROW LEVEL SECURITY;
 `
 
 func OpenStore(ctx context.Context, databaseURL string) (*Store, error) {
@@ -179,6 +189,50 @@ func (s *Store) Regions(ctx context.Context) ([]RegionStat, error) {
 		out = []RegionStat{}
 	}
 	return out, err
+}
+
+// Sample is a captured chat image with its raw OCR output, kept for tuning OCR.
+type Sample struct {
+	ID        int64  `json:"id"`
+	Client    string `json:"client"`
+	Region    string `json:"region"`
+	CreatedAt int64  `json:"createdAt"`
+	OCR       string `json:"ocr"`
+}
+
+const samplesPerRegion = 50
+
+func (s *Store) AddSample(ctx context.Context, sm Sample, png []byte) (int64, error) {
+	var id int64
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `INSERT INTO samples (client, region, created_at, ocr, png) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+			sm.Client, sm.Region, sm.CreatedAt, sm.OCR, png).Scan(&id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM samples WHERE region = $1 AND id NOT IN (
+			SELECT id FROM samples WHERE region = $1 ORDER BY id DESC LIMIT $2)`, sm.Region, samplesPerRegion)
+		return err
+	})
+	return id, err
+}
+
+func (s *Store) Samples(ctx context.Context, region string, limit int) ([]Sample, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, client, region, created_at, ocr FROM samples
+		WHERE ($1 = '' OR region = $1) ORDER BY id DESC LIMIT $2`, region, limit)
+	if err != nil {
+		return nil, err
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Sample])
+	if out == nil {
+		out = []Sample{}
+	}
+	return out, err
+}
+
+func (s *Store) SamplePNG(ctx context.Context, id int64) ([]byte, error) {
+	var png []byte
+	err := s.pool.QueryRow(ctx, `SELECT png FROM samples WHERE id = $1`, id).Scan(&png)
+	return png, err
 }
 
 func (s *Store) Prune(ctx context.Context, olderThan int64) (int64, error) {
