@@ -65,11 +65,27 @@ function applyFilter(li) {
 // "*[14:11] [Name] [BC] text" -> channel, time, names, body.
 const MSG_RE = /^([!*@#$%^]?)\[(\d{2}:\d{2})\]((?:\s*\[[^\]]*\])*)\s*:?\s*([\s\S]*)$/;
 
+// Header groups after [hh:mm], measured from game captures:
+//   * -> [Title][Player]   (name second, no map)
+//   ^ -> [Player][Map]
+//   others -> [Player]
+// Further [..] groups are item links and belong to the message.
+const HEADER = { "*": { count: 2, player: 1 }, "^": { count: 2, player: 0 } };
+const DEFAULT_HEADER = { count: 1, player: 0 };
+
 function formatted(text) {
   const m = MSG_RE.exec(text);
   if (!m) return null;
   const groups = m[3].match(/\[[^\]]*\]/g) || [];
-  return { head: `${m[1]}[${m[2]}]`, player: groups[0] || "", place: groups.slice(1).join(""), body: m[4] };
+  const layout = HEADER[m[1]] || DEFAULT_HEADER;
+  const header = groups.slice(0, layout.count);
+  const extra = groups.slice(layout.count).join(" ");
+  const player = Math.min(layout.player, header.length - 1);
+  return {
+    head: `${m[1]}[${m[2]}]`,
+    groups: header.map((g, i) => [i === player ? "player" : "group", g]),
+    body: extra ? `${extra} ${m[4]}`.trim() : m[4],
+  };
 }
 
 function row(m, showRegion) {
@@ -87,7 +103,7 @@ function row(m, showRegion) {
     li.append(tag);
   }
   const f = formatted(m.text);
-  const parts = f ? [["head", f.head], ["player", f.player], ["place", f.place], ["sep", ": "], ["text", f.body]] : [["text", m.text]];
+  const parts = f ? [["head", f.head], ...f.groups, ["sep", ": "], ["text", f.body]] : [["text", m.text]];
   for (const [cls, value] of parts) {
     const span = document.createElement("span");
     span.className = cls;
