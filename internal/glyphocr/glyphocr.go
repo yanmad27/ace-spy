@@ -80,6 +80,7 @@ type Engine struct {
 	cellH  int
 	top    int
 
+	byText  map[string]*glyph
 	profile []int  // ink per cell row, summed over letters and digits
 	own     uint32 // cell rows that belong to the line itself
 
@@ -130,6 +131,10 @@ func New() (*Engine, error) {
 		e.glyphs = append(e.glyphs, glyph{text: text, adv: g.Adv, cols: g.Cols, over: g.Over, care: care, outside: own &^ care, ink: ink})
 	}
 	sort.Slice(e.glyphs, func(i, j int) bool { return e.glyphs[i].text < e.glyphs[j].text })
+	e.byText = map[string]*glyph{}
+	for i := range e.glyphs {
+		e.byText[e.glyphs[i].text] = &e.glyphs[i]
+	}
 	e.profile = make([]int, atlas.CellHeight)
 	for _, g := range e.glyphs {
 		if len(g.text) != 1 || !(g.text[0] >= 'a' && g.text[0] <= 'z' || g.text[0] >= '0' && g.text[0] <= '9' || g.text == "[" || g.text == "]") {
@@ -187,7 +192,7 @@ func (e *Engine) RecognizeLines(bgra []byte, w, h int) ([]Line, error) {
 			lines = append(lines, l)
 		}
 	}
-	return lines, nil
+	return e.trimJunk(bgra, w, h, lines), nil
 }
 
 // lineTops finds the cell top of every text line. Lines sit on a fixed 15px pitch;

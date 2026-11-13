@@ -96,3 +96,38 @@ func TestSkipsLineCutByEdge(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// Background art glued to the end of a message (no gap) must be cut off.
+func TestTrimsBackgroundJunk(t *testing.T) {
+	e, _ := New()
+	lines := []string{
+		"^[10:19] [_MuuHenKeBan_] [BC] bg sai ose ngon hay agamenon ngon ta",
+		"^[10:20] [_Next_] [BC] cả 2 đều ngon",
+		"*[10:21] [Tổng thống] [FinalChapter] tru ae",
+		"$[10:22] [ahihihihi] Ban the LM vang",
+	}
+	colors := [][3]byte{{0xea, 0x22, 0x22}, {0xea, 0x22, 0x22}, {0x00, 0xff, 0xff}, {0xfe, 0xae, 0x00}}
+	pix, w, h := drawFrame(t, e, lines, colors, 520)
+	// streaks of varying bright greyish-blue colour right after the first line's text
+	end := 7
+	for _, r := range lines[0] {
+		end += e.byText[string(r)].adv
+	}
+	top := 2 - e.top + 1
+	for k, x := range []int{end + 1, end + 3, end + 4, end + 7, end + 9, end + 10, end + 13} {
+		for y := top + e.top + 2; y < top+e.top+11; y++ {
+			i := (y*w + x) * 4
+			v := byte(150 + (k*17+y*9)%90)
+			pix[i], pix[i+1], pix[i+2] = v, v-20, v-60
+		}
+	}
+	got, _ := e.Recognize(pix, w, h)
+	if len(got) != len(lines) {
+		t.Fatalf("got %q", got)
+	}
+	for i := range lines {
+		if got[i] != lines[i] {
+			t.Errorf("line %d\n got  %q\n want %q", i, got[i], lines[i])
+		}
+	}
+}
