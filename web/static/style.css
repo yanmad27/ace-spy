@@ -170,3 +170,22 @@ mark { background: var(--hl); color: inherit; }
 @media (max-width: 760px) {
   .pane, .pane:last-child { border: 1px solid #4f86b8; }
 }
+
+/* Top bar in the same game window style; rounded frames. */
+body > header {
+  margin: 8px 8px 0;
+  padding: 6px 10px;
+  border: 1px solid #4f86b8;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px #0b1621, 0 0 0 1px #0b1621;
+  background: linear-gradient(180deg, #2b5f92 0%, #1d4673 55%, #163758 100%);
+}
+body > header h1 { color: #ffffff; font: 700 15px Verdana, Tahoma, sans-serif; text-shadow: 0 1px 0 #0b1621; }
+body > header #search {
+  border: 1px solid #4f86b8;
+  border-radius: 4px;
+  background: #0e1d2b;
+  color: #f0f0f0;
+}
+body > header .toggle { color: #b8d4ee; }
+.pane, .pane:last-child { border-radius: 6px; }
