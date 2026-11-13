@@ -89,7 +89,7 @@ h1 { font-size: 16px; margin: 0; }
 .feed { list-style: none; margin: 0; padding: 0; }
 .feed li {
   padding: 1px 0;
-  font: 13px/1.5 Verdana, Tahoma, "Segoe UI", sans-serif;
+  font: 14px/1.55 Verdana, Tahoma, "Segoe UI", sans-serif;
   line-height: 1.5;
   white-space: nowrap;
   overflow: hidden;

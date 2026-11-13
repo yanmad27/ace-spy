@@ -104,7 +104,7 @@ function row(m, showRegion) {
     li.append(tag);
   }
   const f = formatted(m.text);
-  const parts = f ? [["chan", f.channel], ["head", f.head], ...f.groups, ["sep", ": "], ["text", f.body]] : [["text", m.text]];
+  const parts = f ? [["chan", f.channel], ["head", f.head], ...f.groups, ["sep", " "], ["text", f.body]] : [["text", m.text]];
   for (const [cls, value] of parts) {
     const span = document.createElement("span");
     span.className = cls;
