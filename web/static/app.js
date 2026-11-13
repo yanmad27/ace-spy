@@ -74,6 +74,10 @@ const MSG_RE = /^([!*@#$%^]?)\[(\d{2}:\d{2})\]((?:\s*\[[^\]]*\])*)\s*:?\s*([\s\S
 const HEADER = { "*": { count: 2, player: 1 }, "^": { count: 2, player: 0 } };
 const DEFAULT_HEADER = { count: 1, player: 0 };
 
+// Titles whose holder's name is highlighted (folded: no diacritics, letters only).
+const LEADER_TITLES = new Set(["tongthong", "tongtulenh"]);
+const NOTICE_PREFIX = "§ ";
+
 function formatted(text) {
   const m = MSG_RE.exec(text);
   if (!m) return null;
@@ -82,10 +86,11 @@ function formatted(text) {
   const header = groups.slice(0, layout.count);
   const extra = groups.slice(layout.count).join(" ");
   const player = Math.min(layout.player, header.length - 1);
+  const leader = m[1] === "*" && player > 0 && LEADER_TITLES.has(foldText(header[0]));
   return {
     channel: m[1],
     head: `[${m[2]}]`,
-    groups: header.map((g, i) => [i === player ? "player" : "group", g]),
+    groups: header.map((g, i) => [i === player ? (leader ? "player leader" : "player") : "group", g]),
     body: extra ? `${extra} ${m[4]}`.trim() : m[4],
   };
 }
@@ -125,9 +130,13 @@ function row(m, showRegion) {
     tag.textContent = m.region;
     li.append(tag);
   }
-  const f = formatted(m.text);
-  const body = f ? bodyRuns(f.body, m.colors).map(([t, c]) => ["text", t, c]) : [["text", m.text, null]];
-  const parts = f ? [["chan", f.channel], ["head", f.head], ...f.groups, ["sep", " "], ...body] : body;
+  const notice = m.text.startsWith(NOTICE_PREFIX);
+  if (notice) li.classList.add("notice");
+  const f = notice ? null : formatted(m.text);
+  const text = notice ? m.text.slice(NOTICE_PREFIX.length) : m.text;
+  const body = f ? bodyRuns(f.body, m.colors).map(([t, c]) => ["text", t, c]) : [["text", text, null]];
+  const parts = f ? [["chan", f.channel], ["head", f.head], ...f.groups, ["sep", " "], ...body]
+    : notice ? [["chan", ""], ...body] : body;
   for (const [cls, value, color] of parts) {
     const span = document.createElement("span");
     span.className = cls;

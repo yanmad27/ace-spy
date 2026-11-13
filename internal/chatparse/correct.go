@@ -123,7 +123,13 @@ func (b *NameBook) Messages(lines []string) []string {
 // MessagesColored is Messages with token colours (see Msg).
 func (b *NameBook) MessagesColored(lines []string, colors [][]string) []Msg {
 	msgs := assembleColored(lines, colors)
-	fixTimestamps(msgs)
+	var chat []*message
+	for _, m := range msgs {
+		if !m.notice {
+			chat = append(chat, m)
+		}
+	}
+	fixTimestamps(chat)
 	b.mu.Lock()
 	for _, m := range msgs {
 		for _, n := range m.names {

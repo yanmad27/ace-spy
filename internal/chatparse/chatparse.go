@@ -4,6 +4,7 @@ package chatparse
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -106,6 +107,19 @@ func assembleColored(lines []string, colors [][]string) []*message {
 		if line == "" {
 			continue
 		}
+		if isNoticeLine(splitColors[i]) && !timestampRe.MatchString(line) && (cur == nil || cur.notice || !endsNotice(cur.colors)) {
+			if cur == nil || !cur.notice {
+				flush()
+				cur = &message{notice: true, colors: []string{}, src: []string{}}
+			}
+			cur.body = strings.TrimSpace(cur.body + " " + line)
+			cur.colors = append(append([]string(nil), cur.colors...), splitColors[i]...)
+			cur.src = append(append([]string(nil), cur.src...), strings.Fields(line)...)
+			continue
+		}
+		if cur != nil && cur.notice {
+			flush()
+		}
 		if m, ok := parseHeader(line); ok {
 			flush()
 			cur = m
@@ -142,6 +156,40 @@ type message struct {
 	body    string
 	colors  []string // token colours of the source line(s), in order
 	src     []string // the source tokens those colours belong to
+	notice  bool     // a yellow system announcement: no header, body only
+}
+
+// NoticePrefix marks a pushed game announcement ("§ text"), which has no channel or time.
+const NoticePrefix = "§ "
+
+// isNoticeColor matches the bright yellow of game announcements, not the $ channel
+// amber (feae00) or the dim tag yellow (bfbf00).
+func isNoticeColor(c string) bool {
+	v, err := strconv.ParseUint(c, 16, 32)
+	if len(c) != 6 || err != nil {
+		return false
+	}
+	r, g, b := v>>16, v>>8&0xff, v&0xff
+	return r >= 0xe0 && g >= 0xd0 && b <= 0x70
+}
+
+// isNoticeLine: the first token and at least 80% of all tokens are announcement yellow.
+func isNoticeLine(colors []string) bool {
+	if len(colors) == 0 || !isNoticeColor(colors[0]) {
+		return false
+	}
+	n := 0
+	for _, c := range colors {
+		if isNoticeColor(c) {
+			n++
+		}
+	}
+	return n*5 >= len(colors)*4
+}
+
+// endsNotice: a player who chats in yellow wraps onto yellow headerless lines.
+func endsNotice(colors []string) bool {
+	return len(colors) > 0 && isNoticeColor(colors[len(colors)-1])
 }
 
 // partColors splits a line's token colours across the parts splitMerged made of it.
@@ -188,6 +236,9 @@ func (m *message) colored() Msg {
 	text := m.String()
 	if len(m.colors) == 0 || len(m.colors) != len(m.src) {
 		return Msg{Text: text}
+	}
+	if m.notice {
+		return Msg{Text: text, Colors: m.colors}
 	}
 	bodyToks := len(strings.Fields(m.body))
 	if bodyToks > len(m.colors) {
@@ -245,6 +296,9 @@ func fixNumbers(s string) string {
 }
 
 func (m *message) String() string {
+	if m.notice {
+		return NoticePrefix + m.body
+	}
 	var b strings.Builder
 	b.WriteString(m.channel + "[" + m.hh + ":" + m.mm + "]")
 	for _, n := range m.names {
@@ -260,6 +314,9 @@ func (m *message) String() string {
 // is real chat rather than OCR noise. The header is the strong signal, so the body may be
 // teencode, abbreviations or emoticons ("=))", ":V", "cmndt").
 func (m *message) meaningful() bool {
+	if m.notice {
+		return noticeMeaningful(m.body)
+	}
 	if len(m.names) == 0 || m.body == "" {
 		return false
 	}
@@ -332,6 +389,11 @@ func clean(s string) string {
 }
 
 // isMeaningfulLine is the stricter test for lines without a timestamp header.
+func noticeMeaningful(body string) bool {
+	st := score(body)
+	return st.valid >= 2 && st.ratio() >= 0.6 && st.junkRatio() <= 0.1
+}
+
 func isMeaningfulLine(line string) bool {
 	st := score(line)
 	return st.valid >= 2 && st.ratio() >= 0.6 && st.junkRatio() <= 0.12 && st.singleRatio() <= 0.25
@@ -340,6 +402,9 @@ func isMeaningfulLine(line string) bool {
 // Acceptable reports whether a single pushed text is a well-formed, meaningful
 // "<channel>[hh:mm] [Name] text" chat message.
 func Acceptable(s string) bool {
+	if body, ok := strings.CutPrefix(s, NoticePrefix); ok {
+		return !timestampRe.MatchString(body) && noticeMeaningful(body)
+	}
 	line := clean(s)
 	if len(splitMerged(line)) != 1 {
 		return false

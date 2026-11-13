@@ -18,6 +18,8 @@
   --ch-gold: #feae00;
   --ch-purple: #d394f2;
   --ch-none: #f0f0f0;
+  --notice: #ffff00;
+  --leader: #ffd700;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -128,6 +130,8 @@ h1 { font-size: 16px; margin: 0; }
 .feed li.ch-pale { color: var(--ch-pale); }
 .feed li.ch-gold { color: var(--ch-gold); }
 .feed li.ch-purple { color: var(--ch-purple); }
+.feed li.notice { color: var(--notice); }
+.feed .player.leader { color: var(--leader); text-shadow: 0 0 4px rgba(255, 215, 0, 0.75), 0 0 10px rgba(255, 170, 0, 0.45); }
 mark { background: var(--hl); color: inherit; }
 @media (max-width: 760px) {
   .panes { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
