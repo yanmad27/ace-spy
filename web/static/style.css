@@ -132,3 +132,41 @@ mark { background: var(--hl); color: inherit; }
   .pane { border-right: 0; border-bottom: 1px solid var(--border); }
   .pane:last-child { border-bottom: 0; }
 }
+
+/* Game chat window frame: bevelled light-blue border, blue title bar, thin scrollbar. */
+.panes { gap: 8px; padding: 8px; background: var(--bg); }
+.pane {
+  border: 1px solid #4f86b8;
+  border-right: 1px solid #4f86b8;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px #0b1621, 0 0 0 1px #0b1621;
+  overflow: hidden;
+}
+.pane:last-child { border-right: 1px solid #4f86b8; }
+.pane-head {
+  padding: 3px 6px;
+  gap: 6px;
+  background: linear-gradient(180deg, #2b5f92 0%, #1d4673 55%, #163758 100%);
+  border-bottom: 1px solid #4f86b8;
+}
+.pane-head select {
+  padding: 1px 4px;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  font: 700 12px Verdana, Tahoma, sans-serif;
+  text-shadow: 0 1px 0 #0b1621;
+  cursor: pointer;
+}
+.pane-head select option { background: #163758; color: #ffffff; }
+.pane-head .count { color: #b8d4ee; font: 11px Verdana, Tahoma, sans-serif; }
+.scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #2f7fd6 #0e1d2b;
+}
+.scroll::-webkit-scrollbar { width: 6px; }
+.scroll::-webkit-scrollbar-track { background: #0e1d2b; border-left: 1px solid #22384c; }
+.scroll::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #4fa0f0, #2f7fd6); border-radius: 1px; }
+@media (max-width: 760px) {
+  .pane, .pane:last-child { border: 1px solid #4f86b8; }
+}
