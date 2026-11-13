@@ -94,8 +94,8 @@ h1 { font-size: 16px; margin: 0; }
   white-space: normal;
   overflow-wrap: anywhere;
   /* Hanging indent: wrapped lines start after the channel symbol slot. */
-  padding-left: 0.65em;
-  text-indent: -0.65em;
+  padding-left: 8px;
+  text-indent: -8px;
 }
 .feed li.hidden { display: none; }
 .feed .tag {
@@ -113,7 +113,9 @@ h1 { font-size: 16px; margin: 0; }
   color: var(--muted);
 }
 /* Fixed slot for the channel symbol so [hh:mm] lines up, including lines without one. */
-.feed .chan { display: inline-block; width: 0.65em; text-align: center; }
+/* Slot = ink width of the widest common symbol (^, 9px at 14px Verdana); the glyph is
+   centred on its ink, and the -1px cancels the left bearing of the following "[". */
+.feed .chan { display: inline-flex; justify-content: center; width: 9px; margin-right: -1px; text-indent: 0; }
 /* Verdana draws * and ^ high; move their centre to the digits' centre line. */
 .feed .chan[data-ch="*"] { transform: translateY(0.19em); }
 .feed .chan[data-ch="^"] { transform: translateY(0.15em); }
