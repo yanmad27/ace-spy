@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -93,9 +94,10 @@ func (s *Server) viewAuth(next http.Handler) http.Handler {
 type ingestRequest struct {
 	Client   string `json:"client"`
 	Messages []struct {
-		Region string `json:"region"`
-		Text   string `json:"text"`
-		TS     int64  `json:"ts"`
+		Region string   `json:"region"`
+		Text   string   `json:"text"`
+		TS     int64    `json:"ts"`
+		Colors []string `json:"colors"`
 	} `json:"messages"`
 }
 
@@ -230,7 +232,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		if ts <= 0 || ts > now.Add(futureTolerance).UnixMilli() {
 			ts = nowMs
 		}
-		msgs = append(msgs, Message{Client: client, Region: region, Text: text, CapturedAt: ts, ReceivedAt: nowMs})
+		msgs = append(msgs, Message{Client: client, Region: region, Text: text, CapturedAt: ts, ReceivedAt: nowMs, Colors: cleanColors(m.Colors, text)})
 	}
 
 	if s.opts.Dedupe > 0 {
@@ -291,6 +293,29 @@ func containsSimilarKey(keys []string, k string) bool {
 	}
 	return false
 }
+
+// cleanColors keeps per-token colours only if they are well-formed hex and no more
+// than the text has tokens; anything else is dropped (the viewer falls back to the
+// channel colour).
+func cleanColors(colors []string, text string) []string {
+	if len(colors) == 0 || len(colors) >= len(strings.Fields(text)) {
+		return nil
+	}
+	out := make([]string, len(colors))
+	for i, c := range colors {
+		c = strings.ToLower(c)
+		if c != "" && !hexColorRe.MatchString(c) {
+			return nil
+		}
+		if c == "" {
+			c = "-"
+		}
+		out[i] = c
+	}
+	return out
+}
+
+var hexColorRe = regexp.MustCompile(`^[0-9a-f]{6}$`)
 
 func clean(s string, maxRunes int, allowEmpty bool) (string, error) {
 	if !utf8.ValidString(s) {

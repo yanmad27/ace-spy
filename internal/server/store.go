@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,12 +13,13 @@ import (
 )
 
 type Message struct {
-	ID         int64  `json:"id"`
-	Client     string `json:"client"`
-	Region     string `json:"region"`
-	Text       string `json:"text"`
-	CapturedAt int64  `json:"ts"`
-	ReceivedAt int64  `json:"receivedAt"`
+	ID         int64    `json:"id"`
+	Client     string   `json:"client"`
+	Region     string   `json:"region"`
+	Text       string   `json:"text"`
+	CapturedAt int64    `json:"ts"`
+	ReceivedAt int64    `json:"receivedAt"`
+	Colors     []string `json:"colors,omitempty"`
 }
 
 type RegionStat struct {
@@ -46,6 +48,7 @@ DROP INDEX IF EXISTS idx_messages_dedupe;
 CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
 -- No policies: blocks Supabase/PostgREST anon access; the owning role used by this server is exempt.
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS colors TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS samples (
 	id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	client     TEXT   NOT NULL,
@@ -99,22 +102,24 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 func (s *Store) Close() { s.pool.Close() }
 
 const insertSQL = `
-INSERT INTO messages (client, region, text, captured_at, received_at)
-SELECT t.client, t.region, t.text, t.captured_at, t.received_at
-FROM unnest($1::text[], $2::text[], $3::text[], $4::bigint[], $5::bigint[])
-	WITH ORDINALITY AS t(client, region, text, captured_at, received_at, ord)
+INSERT INTO messages (client, region, text, captured_at, received_at, colors)
+SELECT t.client, t.region, t.text, t.captured_at, t.received_at, t.colors
+FROM unnest($1::text[], $2::text[], $3::text[], $4::bigint[], $5::bigint[], $6::text[])
+	WITH ORDINALITY AS t(client, region, text, captured_at, received_at, colors, ord)
 ORDER BY t.ord
-RETURNING id, client, region, text, captured_at, received_at`
+RETURNING id, client, region, text, captured_at, received_at, colors`
 
 // Insert stores messages in one round trip. Returned rows are ordered by id.
 func (s *Store) Insert(ctx context.Context, msgs []Message) ([]Message, error) {
 	n := len(msgs)
 	clients, regions, texts := make([]string, n), make([]string, n), make([]string, n)
 	captured, received := make([]int64, n), make([]int64, n)
+	colors := make([]string, n)
 	for i, m := range msgs {
 		clients[i], regions[i], texts[i], captured[i], received[i] = m.Client, m.Region, m.Text, m.CapturedAt, m.ReceivedAt
+		colors[i] = strings.Join(m.Colors, " ")
 	}
-	out, err := s.query(ctx, insertSQL, clients, regions, texts, captured, received)
+	out, err := s.query(ctx, insertSQL, clients, regions, texts, captured, received, colors)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +144,7 @@ func (s *Store) Before(ctx context.Context, region string, beforeID int64, limit
 		beforeID = 1<<63 - 1
 	}
 	msgs, err := s.query(ctx, `
-		SELECT id, client, region, text, captured_at, received_at FROM messages
+		SELECT id, client, region, text, captured_at, received_at, colors FROM messages
 		WHERE id < $1 AND ($2 = '' OR region = $2)
 		ORDER BY id DESC LIMIT $3`, beforeID, region, limit)
 	if err != nil {
@@ -154,7 +159,7 @@ func (s *Store) Before(ctx context.Context, region string, beforeID int64, limit
 // After returns up to limit messages with id > afterID, oldest first.
 func (s *Store) After(ctx context.Context, region string, afterID int64, limit int) ([]Message, error) {
 	return s.query(ctx, `
-		SELECT id, client, region, text, captured_at, received_at FROM messages
+		SELECT id, client, region, text, captured_at, received_at, colors FROM messages
 		WHERE id > $1 AND ($2 = '' OR region = $2)
 		ORDER BY id ASC LIMIT $3`, afterID, region, limit)
 }
@@ -166,7 +171,9 @@ func (s *Store) query(ctx context.Context, sql string, args ...any) ([]Message, 
 	}
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Message, error) {
 		var m Message
-		err := r.Scan(&m.ID, &m.Client, &m.Region, &m.Text, &m.CapturedAt, &m.ReceivedAt)
+		var colors string
+		err := r.Scan(&m.ID, &m.Client, &m.Region, &m.Text, &m.CapturedAt, &m.ReceivedAt, &colors)
+		m.Colors = strings.Fields(colors)
 		return m, err
 	})
 	if out == nil {

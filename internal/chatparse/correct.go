@@ -113,7 +113,16 @@ func similarName(a, b string) bool {
 // Messages is like the package-level Messages, additionally correcting timestamps by
 // chronological order and names against the names learned so far.
 func (b *NameBook) Messages(lines []string) []string {
-	msgs := assemble(lines)
+	var out []string
+	for _, m := range b.MessagesColored(lines, nil) {
+		out = append(out, m.Text)
+	}
+	return out
+}
+
+// MessagesColored is Messages with token colours (see Msg).
+func (b *NameBook) MessagesColored(lines []string, colors [][]string) []Msg {
+	msgs := assembleColored(lines, colors)
 	fixTimestamps(msgs)
 	b.mu.Lock()
 	for _, m := range msgs {
@@ -127,9 +136,9 @@ func (b *NameBook) Messages(lines []string) []string {
 		}
 	}
 	b.mu.Unlock()
-	out := make([]string, len(msgs))
+	out := make([]Msg, len(msgs))
 	for i, m := range msgs {
-		out[i] = m.String()
+		out[i] = m.colored()
 	}
 	return out
 }

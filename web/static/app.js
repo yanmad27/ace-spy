@@ -89,6 +89,27 @@ function formatted(text) {
   };
 }
 
+// Game colours that have a themed equivalent; other player colours are shown as-is.
+const GAME_COLORS = { ea2222: "var(--ch-red)", "00ffff": "var(--ch-cyan)", feae00: "var(--ch-gold)" };
+
+// Splits the body into runs of equal captured colour. m.colors holds the colours of
+// the last m.colors.length tokens of m.text; null colour = inherit the channel colour.
+function bodyRuns(body, colors) {
+  const toks = body.split(/\s+/).filter(Boolean);
+  if (!colors || !colors.length) return [[body, null]];
+  const cs = colors.slice(-toks.length);
+  const pad = toks.length - cs.length;
+  const runs = [];
+  toks.forEach((tok, i) => {
+    const raw = i < pad ? null : cs[i - pad];
+    const c = !raw || raw === "-" ? null : GAME_COLORS[raw] || `#${raw}`;
+    const last = runs[runs.length - 1];
+    if (last && last[1] === c) last[0] += ` ${tok}`;
+    else runs.push([runs.length ? ` ${tok}` : tok, c]);
+  });
+  return runs;
+}
+
 function row(m, showRegion) {
   const li = document.createElement("li");
   li.dataset.id = m.id;
@@ -104,10 +125,12 @@ function row(m, showRegion) {
     li.append(tag);
   }
   const f = formatted(m.text);
-  const parts = f ? [["chan", f.channel], ["head", f.head], ...f.groups, ["sep", " "], ["text", f.body]] : [["text", m.text]];
-  for (const [cls, value] of parts) {
+  const body = f ? bodyRuns(f.body, m.colors).map(([t, c]) => ["text", t, c]) : [["text", m.text, null]];
+  const parts = f ? [["chan", f.channel], ["head", f.head], ...f.groups, ["sep", " "], ...body] : body;
+  for (const [cls, value, color] of parts) {
     const span = document.createElement("span");
     span.className = cls;
+    if (color) span.style.color = color;
     if (cls === "chan") span.dataset.ch = value;
     span.dataset.raw = value;
     highlight(span, value);

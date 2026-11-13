@@ -1,7 +1,10 @@
 package glyphocr
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/yanmad27/ace-spy/internal/chatparse"
 )
 
 // drawFrame renders chat lines with the atlas glyphs the way the game does:
@@ -129,5 +132,40 @@ func TestTrimsBackgroundJunk(t *testing.T) {
 		if got[i] != lines[i] {
 			t.Errorf("line %d\n got  %q\n want %q", i, got[i], lines[i])
 		}
+	}
+}
+
+// A player-coloured message: header in the channel colour, body in the player's colour.
+func TestTokenColors(t *testing.T) {
+	e, _ := New()
+	lines := []string{"^[15:47] [NGNhatAnHy] [AC] xin giap moon MG thit", "*[16:59] [Phó tổng thống] [Drift] ok luôn"}
+	pix, w, h := drawFrame(t, e, lines, [][3]byte{{0xea, 0x22, 0x22}, {0x00, 0xff, 0xff}}, 520)
+	// repaint the body of line 0 ("xin giap ...") green
+	start := 7
+	for _, r := range "^[15:47] [NGNhatAnHy] [AC] " {
+		start += e.byText[string(r)].adv
+	}
+	for y := 0; y < linePitch+3; y++ {
+		for x := start; x < w; x++ {
+			i := (y*w + x) * 4
+			if pix[i+2] == 0xea && pix[i+1] == 0x22 {
+				pix[i], pix[i+1], pix[i+2] = 0x00, 0xff, 0x00
+			}
+		}
+	}
+	texts, colors, err := e.RecognizeColored(pix, w, h)
+	if err != nil || len(texts) != 2 {
+		t.Fatalf("texts %q err %v", texts, err)
+	}
+	msgs := chatparse.MessagesColored(texts, colors)
+	if len(msgs) != 2 {
+		t.Fatalf("msgs %+v", msgs)
+	}
+	want0 := []string{"ea2222", "ea2222", "00ff00", "00ff00", "00ff00", "00ff00", "00ff00"}
+	if strings.Join(msgs[0].Colors, " ") != strings.Join(want0, " ") {
+		t.Errorf("line 0 colours %v, want %v", msgs[0].Colors, want0)
+	}
+	if c := msgs[1].Colors; len(c) == 0 || c[len(c)-1] != "00ffff" {
+		t.Errorf("line 1 colours %v", c)
 	}
 }

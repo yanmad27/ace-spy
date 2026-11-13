@@ -26,6 +26,11 @@ type Recognizer interface {
 	Recognize(bgra []byte, width, height int) ([]string, error)
 }
 
+// ColorRecognizer also reports the colour of each token of each line.
+type ColorRecognizer interface {
+	RecognizeColored(bgra []byte, width, height int) ([]string, [][]string, error)
+}
+
 type Sink interface {
 	Enqueue(msgs ...pusher.Message)
 }
@@ -110,7 +115,13 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 	if sum == *lastHash {
 		return nil
 	}
-	lines, err := r.ocr.Recognize(pix, w, h)
+	var lines []string
+	var colors [][]string
+	if cr, ok := r.ocr.(ColorRecognizer); ok {
+		lines, colors, err = cr.RecognizeColored(pix, w, h)
+	} else {
+		lines, err = r.ocr.Recognize(pix, w, h)
+	}
 	if err != nil {
 		return fmt.Errorf("ocr: %w", err)
 	}
@@ -119,7 +130,13 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 		*lastSample = time.Now()
 		r.events.OnSample(reg, pix, w, h, lines)
 	}
-	msgs := names.Messages(lines)
+	colored := names.MessagesColored(lines, colors)
+	msgs := make([]string, len(colored))
+	colorOf := make(map[string][]string, len(colored))
+	for i, m := range colored {
+		msgs[i] = m.Text
+		colorOf[m.Text] = m.Colors
+	}
 	fresh := tracker.Feed(msgs)
 	r.events.OnLines(reg.ID, msgs, fresh)
 	if len(fresh) == 0 {
@@ -128,7 +145,7 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 	now := time.Now().UnixMilli()
 	out := make([]pusher.Message, len(fresh))
 	for i, text := range fresh {
-		out[i] = pusher.Message{Region: reg.Label, Text: text, TS: now}
+		out[i] = pusher.Message{Region: reg.Label, Text: text, TS: now, Colors: colorOf[text]}
 	}
 	r.sink.Enqueue(out...)
 	return nil

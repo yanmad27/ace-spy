@@ -1,5 +1,10 @@
 package glyphocr
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Ace Online draws chat without anti-aliasing in a small palette of bright colours,
 // so in a native (1:1) capture every pixel of a real glyph has one exact colour.
 // The game's background art behind the transparent chat box changes as the camera
@@ -129,4 +134,67 @@ func (e *Engine) trimJunk(bgra []byte, w, h int, lines []Line) []Line {
 		}
 	}
 	return lines
+}
+
+// RecognizeColored is Recognize plus the colour of every whitespace-separated token
+// of each line (lowercase "rrggbb", "" when unknown), aligned with strings.Fields(line).
+func (e *Engine) RecognizeColored(bgra []byte, w, h int) ([]string, [][]string, error) {
+	lines, err := e.RecognizeLines(bgra, w, h)
+	if err != nil {
+		return nil, nil, err
+	}
+	var texts []string
+	var colors [][]string
+	for _, l := range lines {
+		text := l.Text()
+		if text == "" {
+			continue
+		}
+		toks := e.tokenColors(bgra, w, h, l)
+		if len(toks) != len(strings.Fields(text)) {
+			toks = nil
+		}
+		texts = append(texts, text)
+		colors = append(colors, toks)
+	}
+	return texts, colors, nil
+}
+
+// tokenColors mirrors Line.Text: leading spaces skipped, cut at a wide blank gap.
+func (e *Engine) tokenColors(bgra []byte, w, h int, l Line) []string {
+	var out []string
+	votes := map[[3]byte]int{}
+	inToken, spaces, started := false, 0, false
+	end := func() {
+		if !inToken {
+			return
+		}
+		best, n := "", 0
+		for c, k := range votes {
+			if k > n {
+				best, n = fmt.Sprintf("%02x%02x%02x", c[0], c[1], c[2]), k
+			}
+		}
+		out = append(out, best)
+		votes = map[[3]byte]int{}
+		inToken = false
+	}
+	for _, sp := range l.Spans {
+		if sp.Text == " " {
+			end()
+			if started {
+				spaces++
+				if spaces >= maxGapSpaces {
+					break
+				}
+			}
+			continue
+		}
+		started, spaces, inToken = true, 0, true
+		if c := e.spanColor(bgra, w, h, l.Top, sp); c.ink && c.uniform {
+			votes[c.rgb]++
+		}
+	}
+	end()
+	return out
 }

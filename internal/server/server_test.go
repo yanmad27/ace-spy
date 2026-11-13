@@ -148,6 +148,29 @@ func TestSamplesRequireTokenAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestColorsRoundTrip(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	body := `{"messages":[
+		{"region":"BCU","text":"^[15:47] [NGNhatAnHy] [AC] xin giap moon","colors":["ea2222","ea2222","00FF00","00ff00","00ff00"]},
+		{"region":"BCU","text":"^[15:48] [A] [AC] bad colours here","colors":["red","00ff00"]},
+		{"region":"BCU","text":"^[15:49] [B] [AC] too many","colors":["ea2222","ea2222","ea2222","ea2222","ea2222"]}
+	]}`
+	if r := do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, body); r.StatusCode != http.StatusOK {
+		t.Fatalf("ingest: %d", r.StatusCode)
+	}
+	var msgs []Message
+	getJSON(t, srv.URL+"/api/messages?region=BCU", &msgs)
+	if len(msgs) != 3 {
+		t.Fatalf("got %+v", msgs)
+	}
+	if strings.Join(msgs[0].Colors, " ") != "ea2222 ea2222 00ff00 00ff00 00ff00" {
+		t.Errorf("colours %v", msgs[0].Colors)
+	}
+	if msgs[1].Colors != nil || msgs[2].Colors != nil {
+		t.Errorf("invalid colours kept: %v %v", msgs[1].Colors, msgs[2].Colors)
+	}
+}
+
 func TestViewAuth(t *testing.T) {
 	srv := newTestServer(t, Options{ViewUser: "admin", ViewPassword: "pw"})
 	if r := do(t, "GET", srv.URL+"/api/regions", "", ""); r.StatusCode != http.StatusUnauthorized {

@@ -28,9 +28,10 @@ const (
 )
 
 type Message struct {
-	Region string `json:"region"`
-	Text   string `json:"text"`
-	TS     int64  `json:"ts"`
+	Region string   `json:"region"`
+	Text   string   `json:"text"`
+	TS     int64    `json:"ts"`
+	Colors []string `json:"colors,omitempty"` // colours of the trailing tokens of Text
 }
 
 type payload struct {

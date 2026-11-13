@@ -76,7 +76,12 @@ func Messages(lines []string) []string {
 	return out
 }
 
-func assemble(lines []string) []*message {
+func assemble(lines []string) []*message { return assembleColored(lines, nil) }
+
+// assembleColored is assemble with per-token colours of each input line
+// (colors[i] aligned with strings.Fields of lines[i]; nil = unknown). Each message
+// collects the colours of every line it was built from.
+func assembleColored(lines []string, colors [][]string) []*message {
 	var out []*message
 	var cur *message
 	flush := func() {
@@ -87,21 +92,38 @@ func assemble(lines []string) []*message {
 		cur = nil
 	}
 	var split []string
-	for _, raw := range lines {
-		split = append(split, splitMerged(clean(raw))...)
+	var splitColors [][]string
+	for i, raw := range lines {
+		parts := splitMerged(clean(raw))
+		split = append(split, parts...)
+		var lc []string
+		if i < len(colors) {
+			lc = colors[i]
+		}
+		splitColors = append(splitColors, partColors(clean(raw), parts, lc)...)
 	}
-	for _, line := range split {
+	for i, line := range split {
 		if line == "" {
 			continue
 		}
 		if m, ok := parseHeader(line); ok {
 			flush()
 			cur = m
+			cur.colors = splitColors[i]
+			if cur.colors != nil {
+				cur.src = strings.Fields(line)
+			}
 			continue
 		}
 		if cur != nil {
 			if isMeaningfulLine(line) {
 				cur.body = strings.TrimSpace(cur.body + " " + line)
+				if cur.colors != nil && splitColors[i] != nil {
+					cur.colors = append(append([]string(nil), cur.colors...), splitColors[i]...)
+					cur.src = append(append([]string(nil), cur.src...), strings.Fields(line)...)
+				} else {
+					cur.colors, cur.src = nil, nil
+				}
 				continue
 			}
 			flush()
@@ -118,6 +140,99 @@ type message struct {
 	hh, mm  string
 	names   []string
 	body    string
+	colors  []string // token colours of the source line(s), in order
+	src     []string // the source tokens those colours belong to
+}
+
+// partColors splits a line's token colours across the parts splitMerged made of it.
+func partColors(line string, parts []string, lc []string) [][]string {
+	out := make([][]string, len(parts))
+	toks := strings.Fields(line)
+	if len(lc) != len(toks) {
+		return out
+	}
+	j := 0
+	for pi, p := range parts {
+		var pc []string
+		for _, t := range strings.Fields(p) {
+			for j < len(toks) && toks[j] != t {
+				j++
+			}
+			if j == len(toks) {
+				pc = nil
+				break
+			}
+			pc = append(pc, lc[j])
+			j++
+		}
+		out[pi] = pc
+	}
+	return out
+}
+
+// Msg is an assembled chat message with the colour of each of its trailing tokens:
+// Colors[i] belongs to the i-th of the last len(Colors) tokens of strings.Fields(Text).
+// The header ("^[hh:mm]") token never gets a colour.
+type Msg struct {
+	Text   string
+	Colors []string
+}
+
+var timeTokenRe = regexp.MustCompile(`\d\s*[:;.]\s*\d`)
+
+// colored aligns the source colours with the tokens of m.String(). The body is a
+// suffix of the source, so it takes the source's trailing colours. Name groups take
+// the colours of the source tokens after the timestamp; a name cut out of a token
+// glued to the body (e.g. "[BC] [Item][Item]") takes the body's first colour.
+func (m *message) colored() Msg {
+	text := m.String()
+	if len(m.colors) == 0 || len(m.colors) != len(m.src) {
+		return Msg{Text: text}
+	}
+	bodyToks := len(strings.Fields(m.body))
+	if bodyToks > len(m.colors) {
+		return Msg{Text: text}
+	}
+	bodyColors := m.colors[len(m.colors)-bodyToks:]
+	head := m.colors[:len(m.colors)-bodyToks]
+	start := 0
+	for i, tok := range m.src[:len(head)] {
+		if timeTokenRe.MatchString(tok) {
+			start = i + 1
+			break
+		}
+	}
+	head = head[start:]
+	var nameColors []string
+	k := 0
+	for _, n := range m.names {
+		for range strings.Fields("[" + n + "]") {
+			switch {
+			case k < len(head):
+				nameColors = append(nameColors, head[k])
+			case len(bodyColors) > 0:
+				nameColors = append(nameColors, bodyColors[0])
+			default:
+				nameColors = append(nameColors, "")
+			}
+			k++
+		}
+	}
+	all := append(nameColors, bodyColors...)
+	if len(all) != len(strings.Fields(text))-1 {
+		return Msg{Text: text, Colors: bodyColors}
+	}
+	return Msg{Text: text, Colors: all}
+}
+
+// MessagesColored is Messages with token colours (see Msg).
+func MessagesColored(lines []string, colors [][]string) []Msg {
+	msgs := assembleColored(lines, colors)
+	out := make([]Msg, len(msgs))
+	for i, m := range msgs {
+		out[i] = m.colored()
+	}
+	return out
 }
 
 // Inside numbers the game font's 0 is often read as D or O ("30D", "4Dk").
