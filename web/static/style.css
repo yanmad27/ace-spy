@@ -94,8 +94,8 @@ h1 { font-size: 16px; margin: 0; }
   white-space: normal;
   overflow-wrap: anywhere;
   /* Hanging indent: wrapped lines start after the channel symbol slot. */
-  padding-left: 0.8em;
-  text-indent: -0.8em;
+  padding-left: 0.65em;
+  text-indent: -0.65em;
 }
 .feed li.hidden { display: none; }
 .feed .tag {
@@ -113,7 +113,7 @@ h1 { font-size: 16px; margin: 0; }
   color: var(--muted);
 }
 /* Fixed slot for the channel symbol so [hh:mm] lines up, including lines without one. */
-.feed .chan { display: inline-block; width: 0.8em; text-align: center; }
+.feed .chan { display: inline-block; width: 0.65em; text-align: center; }
 /* Verdana draws * and ^ high; move their centre to the digits' centre line. */
 .feed .chan[data-ch="*"] { transform: translateY(0.19em); }
 .feed .chan[data-ch="^"] { transform: translateY(0.15em); }
@@ -226,3 +226,7 @@ body > header #search:focus { outline: none; box-shadow: 0 0 8px rgba(62, 200, 2
 }
 @keyframes skeleton-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .feed li.skeleton span { animation: none; } }
+
+/* Single-panel view */
+body.single .panes { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+body.single .pane[data-pane="1"] { display: none; }

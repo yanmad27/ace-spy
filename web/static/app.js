@@ -15,6 +15,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const statusEl = $("#status");
 const searchEl = $("#search");
 const autoEl = $("#autoscroll");
+const singleEl = $("#single");
 
 const dateFmt = new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "medium" });
 
@@ -318,8 +319,17 @@ class Pane {
 const panes = [...document.querySelectorAll(".pane")].map((el, i) => new Pane(el, i));
 const URL_KEYS = ["left", "right"];
 
+function setSingle(on) {
+  singleEl.checked = on;
+  document.body.classList.toggle("single", on);
+  save("ace-spy.single", on ? "1" : "0");
+}
+
+singleEl.addEventListener("change", () => { setSingle(singleEl.checked); syncURL(); });
+
 function syncURL() {
   const p = new URLSearchParams();
+  if (singleEl.checked) p.set("view", "1");
   panes.forEach((pane, i) => { if (pane.region) p.set(URL_KEYS[i], pane.region); });
   const s = p.toString();
   history.replaceState(null, "", s ? `?${s}` : location.pathname);
@@ -394,6 +404,7 @@ searchEl.addEventListener("input", () => {
   }
   await refreshRegions();
   const params = new URLSearchParams(location.search);
+  setSingle(params.has("view") ? params.get("view") === "1" : load("ace-spy.single") === "1");
   const names = state.regions.map((r) => r.region);
   const defaults = [names[0] ?? ALL, names[1] ?? names[0] ?? ALL];
   await Promise.all(panes.map((p, i) => {
