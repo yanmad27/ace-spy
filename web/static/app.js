@@ -117,6 +117,30 @@ function row(m, showRegion) {
   return li;
 }
 
+// Game clock is Vietnam time (UTC+7). [hh:mm] has no date, so each message is
+// placed on the day that puts it closest before the time it was received.
+const GAME_UTC_OFFSET_MIN = 7 * 60;
+const TIME_RE = /^[!*@#$%^~]?\[(\d{2}):(\d{2})\]/;
+
+function orderKey(m) {
+  const recv = Math.floor((m.receivedAt || m.ts) / 60000) + GAME_UTC_OFFSET_MIN;
+  const t = TIME_RE.exec(m.text);
+  if (!t) return recv;
+  let k = Math.floor(recv / 1440) * 1440 + Number(t[1]) * 60 + Number(t[2]);
+  while (k > recv + 120) k -= 1440; // game clock may run slightly ahead
+  while (k <= recv - 1320) k += 1440;
+  return k;
+}
+
+function before(k, id, li) {
+  const lk = Number(li.dataset.k);
+  return k < lk || (k === lk && id < Number(li.dataset.id));
+}
+
+function foldText(s) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 class Pane {
   constructor(el, index) {
     this.index = index;
@@ -129,6 +153,7 @@ class Pane {
     this.oldestId = 0;
     this.lastId = 0;
     this.gen = 0;
+    this.seen = new Set();
     this.select.addEventListener("change", () => this.setRegion(this.select.value).catch(console.error));
     this.olderBtn.addEventListener("click", () => this.loadOlder().catch(console.error));
   }
@@ -155,17 +180,42 @@ class Pane {
     return this.scroll.scrollHeight - this.scroll.scrollTop - this.scroll.clientHeight < 80;
   }
 
+  // Inserts messages ordered by in-game [hh:mm], ties by capture order (id),
+  // skipping messages already shown (same region and text, ignoring accents/case).
+  insert(msgs) {
+    let added = false;
+    for (const m of msgs) {
+      const dup = `${m.region}|${foldText(m.text)}`;
+      if (this.seen.has(dup)) continue;
+      this.seen.add(dup);
+      const li = row(m, !this.region);
+      const k = orderKey(m);
+      li.dataset.k = k;
+      const kids = this.feed.children;
+      let lo = 0, hi = kids.length;
+      const last = kids[hi - 1];
+      if (last && !before(k, m.id, last)) {
+        lo = hi;
+      } else {
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (before(k, m.id, kids[mid])) hi = mid; else lo = mid + 1;
+        }
+      }
+      this.feed.insertBefore(li, kids[lo] || null);
+      added = true;
+    }
+    while (this.feed.childElementCount > MAX_ROWS) {
+      this.feed.firstElementChild.remove();
+      this.olderBtn.hidden = false;
+    }
+    return added;
+  }
+
   append(msgs) {
     if (!msgs.length) return;
     const stick = autoEl.checked && this.nearBottom();
-    const frag = document.createDocumentFragment();
-    for (const m of msgs) frag.append(row(m, !this.region));
-    this.feed.append(frag);
-    while (this.feed.childElementCount > MAX_ROWS) {
-      this.feed.firstElementChild.remove();
-      this.oldestId = Number(this.feed.firstElementChild.dataset.id);
-      this.olderBtn.hidden = false;
-    }
+    this.insert(msgs);
     if (stick) this.scroll.scrollTop = this.scroll.scrollHeight;
     this.updateCount();
   }
@@ -180,6 +230,7 @@ class Pane {
     syncURL();
     const gen = ++this.gen;
     this.feed.textContent = "";
+    this.seen = new Set();
     this.oldestId = 0;
     this.lastId = 0;
     this.updateCount();
@@ -201,11 +252,9 @@ class Pane {
       const msgs = await api(`api/messages${qs({ region: this.region, before: this.oldestId, limit: PAGE })}`);
       if (msgs.length) {
         this.oldestId = msgs[0].id;
-        const before = this.scroll.scrollHeight;
-        const frag = document.createDocumentFragment();
-        for (const m of msgs) frag.append(row(m, !this.region));
-        this.feed.prepend(frag);
-        this.scroll.scrollTop += this.scroll.scrollHeight - before;
+        const height = this.scroll.scrollHeight;
+        this.insert(msgs);
+        this.scroll.scrollTop += this.scroll.scrollHeight - height;
         this.updateCount();
       }
       this.olderBtn.hidden = msgs.length < PAGE;
