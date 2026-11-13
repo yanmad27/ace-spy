@@ -213,3 +213,16 @@ body > header #search { border-color: rgba(62, 200, 255, 0.6); background: rgba(
 body > header #search:focus { outline: none; box-shadow: 0 0 8px rgba(62, 200, 255, 0.7); }
 .scroll::-webkit-scrollbar-thumb { background: #3ec8ff; box-shadow: 0 0 6px #3ec8ff; }
 .scroll { scrollbar-color: #3ec8ff #0e1d2b; }
+
+/* Loading skeleton */
+.feed li.skeleton { padding: 5px 0; text-indent: 0; }
+.feed li.skeleton span {
+  display: block;
+  height: 0.8em;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(62, 200, 255, 0.08) 0%, rgba(62, 200, 255, 0.28) 50%, rgba(62, 200, 255, 0.08) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shine 1.2s linear infinite;
+}
+@keyframes skeleton-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .feed li.skeleton span { animation: none; } }

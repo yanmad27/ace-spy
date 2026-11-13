@@ -220,6 +220,21 @@ class Pane {
     this.updateCount();
   }
 
+  showSkeleton() {
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < 14; i++) {
+      const li = document.createElement("li");
+      li.className = "skeleton";
+      li.setAttribute("aria-hidden", "true");
+      const bar = document.createElement("span");
+      bar.style.width = `${35 + ((i * 37) % 55)}%`;
+      li.append(bar);
+      frag.append(li);
+    }
+    this.feed.append(frag);
+    this.countEl.textContent = "đang tải…";
+  }
+
   updateCount() {
     this.countEl.textContent = `${this.feed.childElementCount} tin`;
   }
@@ -234,7 +249,13 @@ class Pane {
     this.oldestId = 0;
     this.lastId = 0;
     this.updateCount();
-    const msgs = await api(`api/messages${qs({ region, limit: PAGE })}`);
+    this.showSkeleton();
+    let msgs;
+    try {
+      msgs = await api(`api/messages${qs({ region, limit: PAGE })}`);
+    } finally {
+      if (gen === this.gen) this.feed.textContent = "";
+    }
     if (gen !== this.gen) return;
     this.append(msgs);
     if (msgs.length) {
