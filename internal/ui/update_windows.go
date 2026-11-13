@@ -28,8 +28,14 @@ func (a *app) autoUpdate() {
 		wait = updateInterval
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		rel, err := c.Latest(ctx)
-		if err != nil || !updater.Newer(rel.Version, a.version) {
+		if err != nil {
 			cancel()
+			a.asyncLogf("Update check failed: %v", err)
+			continue
+		}
+		if !updater.Newer(rel.Version, a.version) {
+			cancel()
+			a.asyncLogf("Up to date (v%s, latest v%s)", a.version, rel.Version)
 			continue
 		}
 		a.asyncLogf("Downloading update v%s…", rel.Version)
@@ -76,10 +82,10 @@ func (a *app) applyUpdate(version, appDir, stage string) {
 	if wasRunning {
 		args = append(args, "--start")
 	}
-	exe, err := os.Executable()
-	if err == nil {
-		err = exec.Command(exe, args...).Start()
-	}
+	// Start the new exe by its path in the app folder: the running image was just
+	// renamed to ace-spy.exe.old, and os.Executable may report that old path.
+	exe := filepath.Join(appDir, "ace-spy.exe")
+	err := exec.Command(exe, args...).Start()
 	if err != nil {
 		a.logf("Updated to v%s; restart Ace Spy manually (%v)", version, err)
 		return
