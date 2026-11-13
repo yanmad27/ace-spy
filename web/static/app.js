@@ -82,7 +82,8 @@ function formatted(text) {
   const extra = groups.slice(layout.count).join(" ");
   const player = Math.min(layout.player, header.length - 1);
   return {
-    head: `${m[1]}[${m[2]}]`,
+    channel: m[1],
+    head: `[${m[2]}]`,
     groups: header.map((g, i) => [i === player ? "player" : "group", g]),
     body: extra ? `${extra} ${m[4]}`.trim() : m[4],
   };
@@ -103,7 +104,7 @@ function row(m, showRegion) {
     li.append(tag);
   }
   const f = formatted(m.text);
-  const parts = f ? [["head", f.head], ...f.groups, ["sep", ": "], ["text", f.body]] : [["text", m.text]];
+  const parts = f ? [["chan", f.channel], ["head", f.head], ...f.groups, ["sep", ": "], ["text", f.body]] : [["text", m.text]];
   for (const [cls, value] of parts) {
     const span = document.createElement("span");
     span.className = cls;
