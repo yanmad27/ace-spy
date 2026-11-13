@@ -15,7 +15,10 @@ type rgb struct{ r, g, b int }
 func (c rgb) hex() string { return fmt.Sprintf("#%02x%02x%02x", c.r, c.g, c.b) }
 
 // quantised so anti-aliasing / scaling noise collapses onto the game's palette.
-func (c rgb) q() rgb { f := func(v int) int { return min(255, (v+16)/32*32) }; return rgb{f(c.r), f(c.g), f(c.b)} }
+func (c rgb) q() rgb {
+	f := func(v int) int { return min(255, (v+16)/32*32) }
+	return rgb{f(c.r), f(c.g), f(c.b)}
+}
 
 func median(cs []rgb) rgb {
 	if len(cs) == 0 {
