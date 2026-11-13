@@ -189,3 +189,27 @@ body > header #search {
 }
 body > header .toggle { color: #b8d4ee; }
 .pane, .pane:last-child { border-radius: 6px; }
+
+/* Neon frames with translucent title bars. */
+body {
+  background: radial-gradient(1200px 600px at 20% -10%, #17406a 0%, transparent 60%),
+              radial-gradient(900px 500px at 110% 110%, #0f3550 0%, transparent 55%), #0a141e;
+}
+.panes { background: transparent; }
+body > header, .pane {
+  border-color: #3ec8ff;
+  box-shadow: 0 0 6px rgba(62, 200, 255, 0.55), 0 0 18px rgba(62, 200, 255, 0.18), inset 0 0 8px rgba(62, 200, 255, 0.15);
+}
+body > header, .pane-head {
+  background: linear-gradient(180deg, rgba(64, 160, 255, 0.28) 0%, rgba(30, 90, 160, 0.16) 100%);
+  backdrop-filter: blur(6px);
+}
+.pane-head { border-bottom-color: rgba(62, 200, 255, 0.6); }
+body > header h1, .pane-head select {
+  color: #e8fbff;
+  text-shadow: 0 0 6px rgba(62, 200, 255, 0.9), 0 0 2px rgba(62, 200, 255, 1);
+}
+body > header #search { border-color: rgba(62, 200, 255, 0.6); background: rgba(8, 20, 32, 0.7); }
+body > header #search:focus { outline: none; box-shadow: 0 0 8px rgba(62, 200, 255, 0.7); }
+.scroll::-webkit-scrollbar-thumb { background: #3ec8ff; box-shadow: 0 0 6px #3ec8ff; }
+.scroll { scrollbar-color: #3ec8ff #0e1d2b; }
