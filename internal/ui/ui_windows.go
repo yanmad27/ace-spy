@@ -17,6 +17,7 @@ import (
 	"github.com/yanmad27/ace-spy/internal/chatparse"
 	"github.com/yanmad27/ace-spy/internal/config"
 	"github.com/yanmad27/ace-spy/internal/gamewin"
+	"github.com/yanmad27/ace-spy/internal/glyphocr"
 	"github.com/yanmad27/ace-spy/internal/pusher"
 	"github.com/yanmad27/ace-spy/internal/runner"
 	"github.com/yanmad27/ace-spy/internal/screen"
@@ -87,7 +88,7 @@ func (a *app) run() error {
 					LineEdit{AssignTo: &a.langEd, Text: a.cfg.Language, ToolTipText: "BCP-47 tag, e.g. vi"},
 					Label{Text: "OCR engine"},
 					ComboBox{AssignTo: &a.engineCB, Model: config.Engines, CurrentIndex: engineIndex(a.cfg.OCREngine),
-						ToolTipText: "tesseract supports Vietnamese; Windows OCR does not"},
+						ToolTipText: "glyph: exact match of the game's chat font (recommended); tesseract: generic OCR"},
 				},
 			},
 			TableView{
@@ -221,6 +222,8 @@ func (a *app) ocrEngine() (ocrEngine, error) {
 		err error
 	)
 	switch a.cfg.OCREngine {
+	case config.EngineGlyph:
+		e, err = glyphocr.New()
 	case config.EngineWindows:
 		e, err = winocr.New(a.cfg.Language)
 	default:
@@ -311,7 +314,7 @@ func (a *app) testSelected() {
 		a.errorBox("OCR unavailable", err)
 		return
 	}
-	g, err := grabberFor(newResolver(a.model.rows), r)
+	g, err := grabberFor(newResolver(a.model.rows), a.captureRegion(r))
 	if err != nil {
 		a.errorBox("Capture failed", err)
 		return
@@ -412,7 +415,7 @@ func (a *app) start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := pusher.New(a.cfg.ServerURL, a.cfg.Token, a.cfg.ClientName, func(s string) { a.asyncLogf("%s", s) })
 	rn := runner.New(
-		func(r config.Region) (runner.Grabber, error) { return grabberFor(res, r) },
+		func(r config.Region) (runner.Grabber, error) { return grabberFor(res, a.captureRegion(r)) },
 		e, p,
 		runner.Events{
 			OnLines: func(id string, visible, fresh []string) {
@@ -467,6 +470,15 @@ func (a *app) setRunning(running bool) {
 	} else {
 		a.startBtn.SetText("Start")
 	}
+}
+
+// captureRegion returns r as it must be captured: glyph matching reads the game's
+// pixels 1:1, so it ignores the upscale setting.
+func (a *app) captureRegion(r config.Region) config.Region {
+	if a.cfg.OCREngine == config.EngineGlyph {
+		r.Scale = 1
+	}
+	return r
 }
 
 func newResolver(regions []config.Region) *gamewin.Resolver {

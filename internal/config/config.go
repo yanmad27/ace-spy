@@ -43,13 +43,18 @@ type Region struct {
 }
 
 const (
+	// EngineGlyph matches the game's exact chat font (Verdana 12px) pixel by pixel.
+	EngineGlyph     = "glyph"
 	EngineTesseract = "tesseract"
 	EngineWindows   = "windows"
+
+	currentVersion = 2
 )
 
-var Engines = []string{EngineTesseract, EngineWindows}
+var Engines = []string{EngineGlyph, EngineTesseract, EngineWindows}
 
 type Config struct {
+	Version       int      `json:"version"`
 	ServerURL     string   `json:"serverUrl"`
 	Token         string   `json:"token"`
 	ClientName    string   `json:"clientName"`
@@ -63,8 +68,9 @@ func Default() Config {
 	host, _ := os.Hostname()
 	return Config{
 		ServerURL:  "https://ace-spy.vercel.app",
+		Version:    currentVersion,
 		ClientName: host,
-		OCREngine:  EngineTesseract,
+		OCREngine:  EngineGlyph,
 		Language:   "vi",
 		Regions:    []Region{},
 	}
@@ -109,8 +115,8 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Token) == "" {
 		return errors.New("ingest token is required")
 	}
-	if c.OCREngine != EngineTesseract && c.OCREngine != EngineWindows {
-		return fmt.Errorf("OCR engine must be %q or %q", EngineTesseract, EngineWindows)
+	if c.OCREngine != EngineGlyph && c.OCREngine != EngineTesseract && c.OCREngine != EngineWindows {
+		return fmt.Errorf("unknown OCR engine %q", c.OCREngine)
 	}
 	if strings.TrimSpace(c.Language) == "" {
 		return errors.New("OCR language is required")
@@ -142,9 +148,14 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	cfg := Default()
+	cfg.Version = 0
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
+	if cfg.Version < 2 && cfg.OCREngine == EngineTesseract {
+		cfg.OCREngine = EngineGlyph // v2: glyph matching replaced Tesseract as the default
+	}
+	cfg.Version = currentVersion
 	if cfg.Regions == nil {
 		cfg.Regions = []Region{}
 	}

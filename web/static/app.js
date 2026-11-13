@@ -7,8 +7,9 @@ const POLL_HIDDEN_MS = 15000;
 const POLL_BATCH = 500;
 const ALL = "";
 
-// In-game channel symbols: ! green, * blue, @ purple, # $ % orange, ^ red.
-const CHANNELS = { "!": "ch-green", "*": "ch-blue", "@": "ch-purple", "#": "ch-orange", "$": "ch-orange", "%": "ch-orange", "^": "ch-red" };
+// In-game channel colours, measured from captures: ^ red, * cyan, ! green,
+// # pale green, $ gold, @ purple, no symbol grey.
+const CHANNELS = { "^": "ch-red", "*": "ch-cyan", "!": "ch-green", "#": "ch-pale", "$": "ch-gold", "@": "ch-purple", "%": "ch-gold" };
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const statusEl = $("#status");

@@ -150,6 +150,11 @@ func TestMessagesKeepsShortChat(t *testing.T) {
 		"^[15:43] [Daddy] [BC] cmndt",
 		"^[15:48] [NGNhatAnHy] [AC] MG",
 		"^[15:42] [Daddy] [BC] mua 1m wp",
+		"[15:26] [TheHulk] du`",
+		"^[15:29] [TheHulk] [BC] a`",
+		"[17:20] [Imperius] \\",
+		"^[18:25] [VangXinCamOn] [PC] \\hay",
+		"^[17:50] [Galarius] [BC] 10dp/1 á ngon v a :)))",
 	} {
 		if got := Messages([]string{line}); len(got) != 1 {
 			t.Errorf("%q dropped", line)
@@ -166,5 +171,13 @@ func TestFixNumbers(t *testing.T) {
 		if got := fixNumbers(in); got != want {
 			t.Errorf("%q -> %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestItemLinkOnlyMessage(t *testing.T) {
+	got := Messages([]string{"[17:19] [Audi] [Tower Defender S-VI]", "^[17:09] [ChymL] [AC] [Noimm]"})
+	want := []string{"[17:19] [Audi] [Tower Defender S-VI]", "^[17:09] [ChymL] [AC] [Noimm]"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
 	}
 }

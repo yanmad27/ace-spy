@@ -148,14 +148,14 @@ func (m *message) meaningful() bool {
 	if len(m.names) == 0 || m.body == "" {
 		return false
 	}
-	if strings.HasPrefix(m.body, "[") || logEchoRe.MatchString(m.body) {
+	if strings.HasPrefix(m.body, "[") && !strings.Contains(m.body, "]") || logEchoRe.MatchString(m.body) {
 		return false // unclosed name bracket, or our own log read back
 	}
 	st := score(m.body)
 	if st.junkRatio() > 0.2 {
 		return false
 	}
-	return st.words < 3 || st.singleRatio() <= 0.5
+	return st.words < 3 || st.singleRatio() <= 0.7
 }
 
 func parseHeader(line string) (*message, bool) {
@@ -190,6 +190,12 @@ func parseHeader(line string) (*message, bool) {
 	}
 	m.body = strings.TrimLeft(strings.TrimSpace(rest), ".,|`'\"")
 	m.body = strings.TrimSpace(m.body)
+	// A message that is only an item link ("[Tower Defender S-VI]") parses as an
+	// extra name group; the last group is then the content.
+	if m.body == "" && len(m.names) >= 2 {
+		m.body = "[" + m.names[len(m.names)-1] + "]"
+		m.names = m.names[:len(m.names)-1]
+	}
 	return m, true
 }
 
@@ -252,7 +258,8 @@ func (s stats) singleRatio() float64 {
 	return float64(s.singles) / float64(s.words)
 }
 
-const allowedPunct = ".,!?:;'\"()[]+-/%&@#*=~_<>"
+// Includes ` ~ ^ which players use to type tone marks in plain text ("du`", "go~").
+const allowedPunct = ".,!?:;'\"()[]+-/%&@#*=~_<>`^{}|$\\"
 
 func score(text string) stats {
 	var st stats
