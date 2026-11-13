@@ -114,6 +114,9 @@ h1 { font-size: 16px; margin: 0; }
 }
 .feed li.hidden { display: none; }
 .feed .tag {
+  display: inline-block;
+  min-width: 5.5em;
+  text-align: center;
   font-size: 11px;
   padding: 0 6px;
   margin-right: 6px;
