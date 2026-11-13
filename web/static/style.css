@@ -11,11 +11,11 @@
   --ok: #6fdc8c;
   --bad: #e85a50;
   --hl: #7a6418;
-  --ch-red: #e8504a;
+  --ch-red: #cc2222;
   --ch-cyan: #00e0e0;
   --ch-green: #6fdc8c;
   --ch-pale: #c6e4c6;
-  --ch-gold: #e8bd8e;
+  --ch-gold: #feae00;
   --ch-purple: #d394f2;
   --ch-none: #f0f0f0;
 }
@@ -94,8 +94,8 @@ h1 { font-size: 16px; margin: 0; }
   white-space: normal;
   overflow-wrap: anywhere;
   /* Hanging indent: wrapped lines start after the channel symbol slot. */
-  padding-left: 1.2em;
-  text-indent: -1.2em;
+  padding-left: 0.8em;
+  text-indent: -0.8em;
 }
 .feed li.hidden { display: none; }
 .feed .tag {
@@ -113,7 +113,7 @@ h1 { font-size: 16px; margin: 0; }
   color: var(--muted);
 }
 /* Fixed slot for the channel symbol so [hh:mm] lines up, including lines without one. */
-.feed .chan { display: inline-block; width: 1.2em; text-align: center; }
+.feed .chan { display: inline-block; width: 0.8em; text-align: center; }
 /* Verdana draws * and ^ high; move their centre to the digits' centre line. */
 .feed .chan[data-ch="*"] { transform: translateY(0.19em); }
 .feed .chan[data-ch="^"] { transform: translateY(0.15em); }
