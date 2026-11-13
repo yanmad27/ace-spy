@@ -111,7 +111,10 @@ h1 { font-size: 16px; margin: 0; }
   color: var(--muted);
 }
 /* Fixed slot for the channel symbol so [hh:mm] lines up, including lines without one. */
-.feed .chan { display: inline-block; width: 1.1em; text-align: center; }
+.feed .chan { display: inline-block; width: 1.2em; text-align: center; }
+/* Verdana draws * and ^ high; move their centre to the digits' centre line. */
+.feed .chan[data-ch="*"] { transform: translateY(0.19em); }
+.feed .chan[data-ch="^"] { transform: translateY(0.15em); }
 .feed .head { font-variant-numeric: tabular-nums; }
 .feed .player { font-weight: 700; }
 .feed li { color: var(--ch-none); }

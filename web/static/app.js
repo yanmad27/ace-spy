@@ -108,6 +108,7 @@ function row(m, showRegion) {
   for (const [cls, value] of parts) {
     const span = document.createElement("span");
     span.className = cls;
+    if (cls === "chan") span.dataset.ch = value;
     span.dataset.raw = value;
     highlight(span, value);
     li.append(span);
