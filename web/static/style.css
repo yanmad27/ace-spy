@@ -90,6 +90,7 @@ h1 { font-size: 16px; margin: 0; }
 .feed li {
   padding: 1px 0;
   font: 14px/1.55 Verdana, Tahoma, "Segoe UI", sans-serif;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.35);
   line-height: 1.5;
   white-space: normal;
   overflow-wrap: anywhere;
