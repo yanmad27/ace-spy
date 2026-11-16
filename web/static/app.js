@@ -13,9 +13,11 @@ const CHANNELS = { "^": "ch-red", "*": "ch-cyan", "!": "ch-green", "#": "ch-pale
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const statusEl = $("#status");
+const brandEl = $("#brand");
 const searchEl = $("#search");
 const autoEl = $("#autoscroll");
 const singleEl = $("#single");
+const alignEl = $("#align");
 
 const dateFmt = new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "medium" });
 
@@ -142,11 +144,18 @@ function row(m, showRegion) {
   if (ch && m.text.charAt(1) === "[") li.classList.add(ch);
   const d = new Date(m.ts);
   li.title = `${m.text}\nNhận lúc ${dateFmt.format(d)} · ${m.client || "?"}${showRegion ? ` · ${m.region}` : ""}`;
+  // Header (region tag, channel, time, names) and message are two columns, so every
+  // message starts at the same x and wraps within its own column.
+  const hw = document.createElement("span");
+  hw.className = "hw";
+  const msg = document.createElement("span");
+  msg.className = "msg";
+  li.append(hw, msg);
   if (showRegion) {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = m.region;
-    li.append(tag);
+    hw.append(tag);
   }
   const notice = m.text.startsWith(NOTICE_PREFIX);
   if (notice) li.classList.add("notice");
@@ -155,16 +164,17 @@ function row(m, showRegion) {
   const body = f ? bodyRuns(f.body, m.colors).map(([t, c]) => ["text", t, c]) : [["text", text, null]];
   const gc = f ? groupColors(m, f.groups) : [];
   const groups = f ? f.groups.map(([cls, g], i) => [cls, g, gc[i] || null]) : [];
-  const parts = f ? [["chan", f.channel], ["head", f.head], ...groups, ["sep", " "], ...body]
-    : notice ? [["chan", ""], ...body] : body;
-  for (const [cls, value, color] of parts) {
-    const span = document.createElement("span");
-    span.className = cls;
-    if (color) span.style.color = color;
-    if (cls === "chan") span.dataset.ch = value;
-    span.dataset.raw = value;
-    highlight(span, value);
-    li.append(span);
+  const head = f ? [["chan", f.channel], ["head", f.head], ...groups] : notice ? [["chan", ""]] : [];
+  for (const [parts, parent] of [[head, hw], [body, msg]]) {
+    for (const [cls, value, color] of parts) {
+      const span = document.createElement("span");
+      span.className = cls;
+      if (color) span.style.color = color;
+      if (cls === "chan") span.dataset.ch = value;
+      span.dataset.raw = value;
+      highlight(span, value);
+      parent.append(span);
+    }
   }
   applyFilter(li);
   return li;
@@ -237,6 +247,22 @@ class Pane {
     }
   }
 
+  // Widens the header column to the widest header shown (CSS caps it), measured on
+  // the content, not the column's current min-width.
+  fitHeader(lis) {
+    let w = this.headW || 0;
+    for (const li of lis) {
+      const hw = li.firstElementChild;
+      const first = hw.firstElementChild, last = hw.lastElementChild;
+      if (!first || li.classList.contains("notice")) continue;
+      w = Math.max(w, Math.ceil(last.getBoundingClientRect().right - first.getBoundingClientRect().left));
+    }
+    if (w !== this.headW) {
+      this.headW = w;
+      this.feed.style.setProperty("--head-w", `${w}px`);
+    }
+  }
+
   updateJump() {
     const away = !this.nearBottom();
     if (!away) this.unread = 0;
@@ -252,6 +278,7 @@ class Pane {
   // skipping messages already shown (same region and text, ignoring accents/case).
   insert(msgs) {
     let added = 0;
+    const fresh = [];
     for (const m of msgs) {
       if (m.replaces) {
         const old = this.feed.querySelector(`li[data-id="${m.replaces}"]`);
@@ -280,8 +307,10 @@ class Pane {
         }
       }
       this.feed.insertBefore(li, kids[lo] || null);
+      fresh.push(li);
       added++;
     }
+    this.fitHeader(fresh);
     while (this.feed.childElementCount > MAX_ROWS) {
       this.feed.firstElementChild.remove();
       this.olderBtn.hidden = false;
@@ -324,6 +353,8 @@ class Pane {
     syncURL();
     const gen = ++this.gen;
     this.feed.textContent = "";
+    this.headW = 0;
+    this.feed.style.setProperty("--head-w", "0px");
     this.seen = new Set();
     this.oldestId = 0;
     this.lastId = 0;
@@ -410,7 +441,8 @@ function renderStatus() {
   }
   statusEl.textContent = text;
   statusEl.className = `status ${cls}`.trim();
-  statusEl.title = title;
+  brandEl.className = `brand ${cls}`.trim();
+  brandEl.title = title ? `${text.toUpperCase()} · ${title}` : text;
 }
 
 function setStatus(online) {
@@ -472,6 +504,18 @@ searchEl.addEventListener("input", () => {
     }
   }, 150);
 });
+
+// Message column: "auto" (widest header shown), a fixed width in px, or "off".
+const ALIGN_KEY = "ace-spy.align";
+function setAlign(v) {
+  if (![...alignEl.options].some((o) => o.value === v)) v = "auto";
+  alignEl.value = v;
+  document.body.dataset.align = /^\d+$/.test(v) ? "fixed" : v;
+  document.body.style.setProperty("--head-fixed", /^\d+$/.test(v) ? `${v}px` : "0px");
+  save(ALIGN_KEY, v);
+}
+setAlign(load(ALIGN_KEY) || "auto");
+alignEl.addEventListener("change", () => setAlign(alignEl.value));
 
 // Presence: one random id per browser, so several tabs count as one viewer.
 const HEARTBEAT_MS = 15000;

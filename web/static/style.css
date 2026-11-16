@@ -123,9 +123,19 @@ h1 { font-size: 16px; margin: 0; }
   line-height: 1.5;
   white-space: normal;
   overflow-wrap: anywhere;
-  /* Hanging indent: wrapped lines start after the channel symbol slot. */
-  padding-left: 10px;
-  text-indent: -10px;
+  display: flex;
+  align-items: baseline;
+}
+/* Header column, then the message column: wrapped text stays in its column. */
+.feed .hw { flex: none; white-space: nowrap; padding-right: 0.45em; min-width: min(var(--head-w, 0px), 45%); }
+.feed .msg { flex: 1; min-width: 0; }
+body[data-align="fixed"] .feed .hw { min-width: min(var(--head-fixed), 60%); }
+.feed li.notice .hw { min-width: 0; }
+body[data-align="off"] .feed li { display: block; padding-left: 10px; text-indent: -10px; }
+body[data-align="off"] .feed .hw { min-width: 0; padding-right: 0.3em; }
+@media (max-width: 600px) {
+  .feed li { display: block; padding-left: 10px; text-indent: -10px; }
+  .feed .hw, body[data-align="fixed"] .feed .hw { min-width: 0; padding-right: 0.3em; }
 }
 .feed li.hidden { display: none; }
 .feed .tag {
@@ -370,3 +380,40 @@ body > header h1.logo::after {
 .glyphs input { width: 64px; padding: 4px 8px; font: 16px Verdana, sans-serif; border-radius: 6px; border: 1px solid rgba(62, 200, 255, 0.6); background: #0b1621; color: #fff; }
 .glyphs button { padding: 4px 12px; border-radius: 6px; border: 1px solid #3ec8ff; background: rgba(30, 90, 150, 0.9); color: #fff; cursor: pointer; }
 .glyphs .status-text { font-size: 12px; color: #b8d4ee; }
+
+/* Logo + connection state as one block: the frame's colour is the state. */
+.brand {
+  --c: 62, 200, 255;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px 3px 8px;
+  border: 1px solid rgba(var(--c), 0.8);
+  border-radius: 999px;
+  background: rgba(8, 20, 32, 0.55);
+  box-shadow: 0 0 8px rgba(var(--c), 0.55), inset 0 0 8px rgba(var(--c), 0.2);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.brand.online { --c: 80, 255, 140; }
+.brand.idle { --c: 255, 190, 60; }
+.brand.offline { --c: 255, 90, 80; }
+.brand .status {
+  font-size: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  gap: 0;
+  text-shadow: none;
+}
+.brand .status::before { width: 9px; height: 9px; }
+.brand .status:not(.online):not(.offline)::before { animation: live-pulse 1.6s ease-in-out infinite; }
+body > header #align {
+  padding: 3px 6px;
+  border: 1px solid rgba(62, 200, 255, 0.6);
+  border-radius: 6px;
+  background: rgba(8, 20, 32, 0.7);
+  color: #e8fbff;
+  font: inherit;
+}
+body > header #align:focus { outline: none; box-shadow: 0 0 8px rgba(62, 200, 255, 0.7); }
