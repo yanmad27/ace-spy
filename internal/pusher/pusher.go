@@ -25,6 +25,9 @@ const (
 	requestLimit = 15 * time.Second
 	// base64 inflates by 4/3; stay under the 4 MB server limit.
 	maxSampleBytes = 2900 << 10
+	// The viewer shows LIVE while a heartbeat arrived in the last 45 s.
+	heartbeatEvery = 15 * time.Second
+	aliveWindow    = 30 * time.Second
 )
 
 type Message struct {
@@ -42,6 +45,7 @@ type payload struct {
 type Pusher struct {
 	endpoint   string
 	samplesURL string
+	beatURL    string
 	token      string
 	client     string
 	http       *http.Client
@@ -51,6 +55,7 @@ type Pusher struct {
 	queue   []Message
 	dropped int
 	notify  chan struct{}
+	alive   map[string]time.Time
 }
 
 func New(serverURL, token, clientName string, onStatus func(string)) *Pusher {
@@ -61,12 +66,79 @@ func New(serverURL, token, clientName string, onStatus func(string)) *Pusher {
 	return &Pusher{
 		endpoint:   base + "/api/ingest",
 		samplesURL: base + "/api/samples",
+		beatURL:    base + "/api/heartbeat",
 		token:      strings.TrimSpace(token),
 		client:     clientName,
 		http:       &http.Client{Timeout: requestLimit},
 		onStatus:   onStatus,
 		notify:     make(chan struct{}, 1),
+		alive:      map[string]time.Time{},
 	}
+}
+
+// Alive records that region was just captured and OCR'd successfully.
+func (p *Pusher) Alive(region string) {
+	p.mu.Lock()
+	p.alive[region] = time.Now()
+	p.mu.Unlock()
+}
+
+func (p *Pusher) aliveRegions() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []string
+	for r, t := range p.alive {
+		if time.Since(t) <= aliveWindow {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// heartbeat reports the regions that are capturing, so the viewer can show LIVE.
+func (p *Pusher) heartbeat(ctx context.Context) {
+	t := time.NewTicker(heartbeatEvery)
+	defer t.Stop()
+	failing := false
+	for {
+		if regions := p.aliveRegions(); len(regions) > 0 {
+			err := p.postJSON(ctx, p.beatURL, map[string]any{"client": p.client, "regions": regions})
+			if err != nil && !failing && ctx.Err() == nil {
+				p.onStatus(fmt.Sprintf("heartbeat failed: %v", err))
+			}
+			failing = err != nil
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+func (p *Pusher) postJSON(ctx context.Context, url string, v any) error {
+	body, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, requestLimit)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.token)
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return nil
 }
 
 func (p *Pusher) Enqueue(msgs ...Message) {
@@ -87,6 +159,7 @@ func (p *Pusher) Enqueue(msgs ...Message) {
 }
 
 func (p *Pusher) Run(ctx context.Context) {
+	go p.heartbeat(ctx)
 	backoff := minBackoff
 	for {
 		select {

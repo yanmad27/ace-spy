@@ -361,9 +361,32 @@ function syncURL() {
   history.replaceState(null, "", s ? `?${s}` : location.pathname);
 }
 
+// LIVE = the server is reachable and at least one ace-spy client sent a capture
+// heartbeat recently; idle = reachable but nothing is capturing.
+const live = { connected: null, clients: null, regions: [] };
+
+function renderStatus() {
+  let text = "đang kết nối…", cls = "", title = "";
+  if (live.connected === false) {
+    text = "mất kết nối, thử lại…";
+    cls = "offline";
+  } else if (live.connected && live.clients > 0) {
+    text = "live";
+    cls = "online";
+    title = `${live.clients} client đang capture: ${live.regions.join(", ")}`;
+  } else if (live.connected && live.clients === 0) {
+    text = "không có client";
+    cls = "idle";
+    title = "Không có ace-spy nào đang capture chat";
+  }
+  statusEl.textContent = text;
+  statusEl.className = `status ${cls}`.trim();
+  statusEl.title = title;
+}
+
 function setStatus(online) {
-  statusEl.textContent = online ? "live" : "mất kết nối, thử lại…";
-  statusEl.className = `status ${online ? "online" : "offline"}`;
+  live.connected = online;
+  renderStatus();
 }
 
 async function refreshRegions() {
@@ -443,12 +466,16 @@ async function heartbeat() {
       body: JSON.stringify({ id: viewerId }),
     });
     if (!r.ok) throw new Error(`${r.status}`);
-    const { online } = await r.json();
+    const { online, clients, regions } = await r.json();
     $(".n", viewersEl).textContent = online;
     viewersEl.hidden = false;
+    live.clients = clients ?? null;
+    live.regions = regions || [];
   } catch {
     viewersEl.hidden = true;
+    live.clients = null;
   }
+  renderStatus();
 }
 
 heartbeat();

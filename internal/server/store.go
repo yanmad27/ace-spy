@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS viewers (
 );
 CREATE INDEX IF NOT EXISTS idx_viewers_seen ON viewers(seen_at);
 ALTER TABLE viewers ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS capturers (
+	client  TEXT   NOT NULL,
+	region  TEXT   NOT NULL,
+	seen_at BIGINT NOT NULL,
+	PRIMARY KEY (client, region)
+);
+ALTER TABLE capturers ENABLE ROW LEVEL SECURITY;
 `
 
 func OpenStore(ctx context.Context, databaseURL string) (*Store, error) {
@@ -271,4 +278,24 @@ func (s *Store) Presence(ctx context.Context, id string, now, activeSince, stale
 		SELECT COUNT(*) FROM viewers WHERE seen_at >= $3 AND id <> $1`,
 		id, now, activeSince, staleBefore).Scan(&others)
 	return others + 1, err
+}
+
+// Heartbeat records that client is capturing regions now; rows older than staleBefore go.
+func (s *Store) Heartbeat(ctx context.Context, client string, regions []string, now, staleBefore int64) error {
+	_, err := s.pool.Exec(ctx, `
+		WITH up AS (
+			INSERT INTO capturers (client, region, seen_at)
+			SELECT $1, r, $3 FROM unnest($2::text[]) AS r
+			ON CONFLICT (client, region) DO UPDATE SET seen_at = EXCLUDED.seen_at
+		)
+		DELETE FROM capturers WHERE seen_at < $4`, client, regions, now, staleBefore)
+	return err
+}
+
+// Capturing returns the number of clients and the regions with a heartbeat at or after since.
+func (s *Store) Capturing(ctx context.Context, since int64) (clients int64, regions []string, err error) {
+	err = s.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT client), COALESCE(array_agg(DISTINCT region ORDER BY region), '{}')
+		FROM capturers WHERE seen_at >= $1`, since).Scan(&clients, &regions)
+	return clients, regions, err
 }

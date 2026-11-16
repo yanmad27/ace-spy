@@ -35,6 +35,11 @@ type Sink interface {
 	Enqueue(msgs ...pusher.Message)
 }
 
+// AliveSink is told each time a region was captured and OCR'd successfully.
+type AliveSink interface {
+	Alive(region string)
+}
+
 type Events struct {
 	OnLines func(regionID string, visible []string, fresh []string)
 	OnError func(regionID string, err error)
@@ -113,6 +118,7 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 	hs.Write(pix)
 	sum := hs.Sum64()
 	if sum == *lastHash {
+		r.alive(reg)
 		return nil
 	}
 	var lines []string
@@ -126,6 +132,7 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 		return fmt.Errorf("ocr: %w", err)
 	}
 	*lastHash = sum
+	r.alive(reg)
 	if r.events.OnSample != nil && time.Since(*lastSample) >= SampleEvery {
 		*lastSample = time.Now()
 		r.events.OnSample(reg, pix, w, h, lines)
@@ -149,4 +156,10 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 	}
 	r.sink.Enqueue(out...)
 	return nil
+}
+
+func (r *Runner) alive(reg config.Region) {
+	if a, ok := r.sink.(AliveSink); ok {
+		a.Alive(reg.Label)
+	}
 }

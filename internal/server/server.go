@@ -56,6 +56,7 @@ func New(store *Store, static fs.FS, opts Options) http.Handler {
 	mux.Handle("GET /api/messages", s.viewAuth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/regions", s.viewAuth(http.HandlerFunc(s.regions)))
 	mux.Handle("POST /api/presence", s.viewAuth(http.HandlerFunc(s.presence)))
+	mux.HandleFunc("POST /api/heartbeat", s.ingestAuth(s.heartbeat))
 	mux.HandleFunc("GET /api/cron/prune", s.cronPrune)
 	mux.HandleFunc("POST /api/samples", s.ingestAuth(s.addSample))
 	mux.HandleFunc("GET /api/samples", s.ingestAuth(s.listSamples))
@@ -407,13 +408,52 @@ func (s *Server) presence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	n, err := s.store.Presence(r.Context(), req.ID, now.UnixMilli(), now.Add(-presenceActive).UnixMilli(), now.Add(-presenceStale).UnixMilli())
+	active := now.Add(-presenceActive).UnixMilli()
+	n, err := s.store.Presence(r.Context(), req.ID, now.UnixMilli(), active, now.Add(-presenceStale).UnixMilli())
 	if err != nil {
 		log.Printf("presence: %v", err)
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]int64{"online": n})
+	clients, regions, err := s.store.Capturing(r.Context(), active)
+	if err != nil {
+		log.Printf("capturing: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"online": n, "clients": clients, "regions": regions})
+}
+
+const maxHeartbeatRegions = 32
+
+func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Client  string   `json:"client"`
+		Regions []string `json:"regions"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	client, err := clean(req.Client, maxClientRunes, false)
+	if err != nil || len(req.Regions) == 0 || len(req.Regions) > maxHeartbeatRegions {
+		http.Error(w, "invalid heartbeat", http.StatusBadRequest)
+		return
+	}
+	regions := make([]string, len(req.Regions))
+	for i, reg := range req.Regions {
+		if regions[i], err = clean(reg, maxRegionRunes, false); err != nil {
+			http.Error(w, "invalid region", http.StatusBadRequest)
+			return
+		}
+	}
+	now := time.Now()
+	if err := s.store.Heartbeat(r.Context(), client, regions, now.UnixMilli(), now.Add(-presenceStale).UnixMilli()); err != nil {
+		log.Printf("heartbeat: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func parseID(s string) (int64, bool) {

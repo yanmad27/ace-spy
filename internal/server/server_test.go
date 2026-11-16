@@ -27,7 +27,7 @@ func newTestServer(t *testing.T, opts Options) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(store.Close)
-	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers RESTART IDENTITY`); err != nil {
+	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers, capturers RESTART IDENTITY`); err != nil {
 		t.Fatal(err)
 	}
 	opts.IngestToken = token
@@ -246,5 +246,39 @@ func TestPresenceCountsDistinctViewers(t *testing.T) {
 		if code, _ := beat(bad); code != http.StatusBadRequest {
 			t.Errorf("beat(%q) = %d", bad, code)
 		}
+	}
+}
+
+func TestHeartbeatMakesLive(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	state := func() (clients int64, regions []string) {
+		resp, err := http.Post(srv.URL+"/api/presence", "application/json", strings.NewReader(`{"id":"cccccccccccccccccccc"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Clients int64
+			Regions []string
+		}
+		json.NewDecoder(resp.Body).Decode(&out)
+		return out.Clients, out.Regions
+	}
+	if c, r := state(); c != 0 || len(r) != 0 {
+		t.Fatalf("before heartbeat: %d %v", c, r)
+	}
+	if resp := do(t, "POST", srv.URL+"/api/heartbeat", "", `{"client":"pc1","regions":["ANI"]}`); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated heartbeat = %d", resp.StatusCode)
+	}
+	for _, body := range []string{`{"client":"pc1","regions":["ANI","BCU"]}`, `{"client":"pc2","regions":["ANI"]}`} {
+		if resp := do(t, "POST", srv.URL+"/api/heartbeat", "Bearer "+token, body); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("heartbeat = %d", resp.StatusCode)
+		}
+	}
+	if resp := do(t, "POST", srv.URL+"/api/heartbeat", "Bearer "+token, `{"client":"pc1","regions":[]}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty heartbeat = %d", resp.StatusCode)
+	}
+	if c, r := state(); c != 2 || strings.Join(r, ",") != "ANI,BCU" {
+		t.Fatalf("after heartbeat: %d %v", c, r)
 	}
 }

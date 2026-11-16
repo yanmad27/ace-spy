@@ -65,6 +65,7 @@ h1 { font-size: 16px; margin: 0; }
 .status.online { --c: 80, 255, 140; text-transform: uppercase; letter-spacing: 1px; }
 .status.online::before { animation: live-pulse 1.6s ease-in-out infinite; }
 .status.offline { --c: 255, 90, 80; }
+.status.idle { --c: 255, 190, 60; }
 .status.offline::before { animation: live-pulse 0.8s ease-in-out infinite; }
 @keyframes live-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -276,6 +277,8 @@ body > header h1.logo {
 .logo-text {
   font: italic 900 19px/1 "Arial Black", "Segoe UI", Verdana, sans-serif;
   letter-spacing: 0.5px;
+  /* room for the italic overhang of the last letter, which background-clip would cut */
+  padding: 2px 7px 2px 2px;
   transform: skewX(-6deg);
   background: linear-gradient(180deg, #ffffff 0%, #e6eef8 42%, #8ea6c4 50%, #dce8f6 62%, #ffffff 100%);
   -webkit-background-clip: text;
@@ -284,6 +287,8 @@ body > header h1.logo {
   filter: drop-shadow(0 0 1px #0b1621) drop-shadow(0 0 4px rgba(62, 200, 255, 0.85));
 }
 .logo-jet {
+  flex: none;
+  margin-left: 1px;
   width: 20px;
   height: 20px;
   margin-top: -6px;
