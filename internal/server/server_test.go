@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -356,5 +357,116 @@ func TestGlyphReportLabelAndList(t *testing.T) {
 	getJSON(t, srv.URL+"/api/glyphs?labelled=1", &learned)
 	if len(learned) != 1 || learned[0].Label != "★" {
 		t.Fatalf("labelled = %+v", learned)
+	}
+}
+
+func TestStreamDeliversMessagesAndStatus(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	open := func(lastID string) (*http.Response, *bufio.Reader) {
+		req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/api/stream?after=0&id=dddddddddddddddddddd", nil)
+		if lastID != "" {
+			req.Header.Set("Last-Event-ID", lastID)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+			t.Fatalf("content type %q", ct)
+		}
+		return resp, bufio.NewReader(resp.Body)
+	}
+	// next reads one event: its name, id and data.
+	next := func(br *bufio.Reader) (event, id, data string) {
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			line = strings.TrimRight(line, "\n")
+			switch {
+			case line == "" && event != "":
+				return
+			case strings.HasPrefix(line, "event: "):
+				event = line[7:]
+			case strings.HasPrefix(line, "id: "):
+				id = line[4:]
+			case strings.HasPrefix(line, "data: "):
+				data = line[6:]
+			}
+		}
+	}
+
+	resp, br := open("")
+	if ev, _, data := next(br); ev != "status" || !strings.Contains(data, `"online":1`) {
+		t.Fatalf("first event %q %s", ev, data)
+	}
+	body := `{"client":"pc","messages":[{"region":"ANI","text":"^[10:25] [ChymD] [BC] tầm này chỉ có DGA mới níu"}]}`
+	if r := do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, body); r.StatusCode != http.StatusOK {
+		t.Fatalf("ingest = %d", r.StatusCode)
+	}
+	ev, id, data := next(br)
+	for ev == "status" {
+		ev, id, data = next(br)
+	}
+	var msgs []Message
+	if ev != "message" || json.Unmarshal([]byte(data), &msgs) != nil || len(msgs) != 1 || itoa(msgs[0].ID) != id {
+		t.Fatalf("message event %q id=%q %s", ev, id, data)
+	}
+	resp.Body.Close()
+
+	// Reconnecting with Last-Event-ID resumes after the last message: nothing is resent.
+	resp2, br2 := open(id)
+	defer resp2.Body.Close()
+	if ev, _, _ := next(br2); ev != "status" {
+		t.Fatalf("reconnect first event %q", ev)
+	}
+	done := make(chan string, 1)
+	go func() {
+		for {
+			line, err := br2.ReadString('\n')
+			if err != nil {
+				done <- ""
+				return
+			}
+			if strings.HasPrefix(line, "event: ") {
+				done <- strings.TrimSpace(line[7:])
+				return
+			}
+		}
+	}()
+	select {
+	case e := <-done:
+		if e == "message" {
+			t.Fatalf("message resent after reconnect")
+		}
+	case <-time.After(2500 * time.Millisecond):
+	}
+}
+
+func TestPublicReadsAreCDNCacheable(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	for _, path := range []string{"/api/messages", "/api/messages?after=0", "/api/regions", "/"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "s-maxage=") {
+			t.Errorf("%s Cache-Control = %q", path, cc)
+		}
+	}
+	priv := newTestServer(t, Options{ViewUser: "u", ViewPassword: "p"})
+	req, _ := http.NewRequest("GET", priv.URL+"/api/messages", nil)
+	req.SetBasicAuth("u", "p")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if cc := resp.Header.Get("Cache-Control"); strings.Contains(cc, "public") {
+		t.Errorf("password-protected Cache-Control = %q", cc)
 	}
 }

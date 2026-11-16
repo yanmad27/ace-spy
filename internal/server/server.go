@@ -43,19 +43,21 @@ type Options struct {
 }
 
 type Server struct {
+	hub    *hub
 	store  *Store
 	opts   Options
 	static fs.FS
 }
 
 func New(store *Store, static fs.FS, opts Options) http.Handler {
-	s := &Server{store: store, opts: opts, static: static}
+	s := &Server{store: store, opts: opts, static: static, hub: newHub(store)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("POST /api/ingest", s.ingest)
 	mux.Handle("GET /api/messages", s.viewAuth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/regions", s.viewAuth(http.HandlerFunc(s.regions)))
 	mux.Handle("POST /api/presence", s.viewAuth(http.HandlerFunc(s.presence)))
+	mux.Handle("GET /api/stream", s.viewAuth(http.HandlerFunc(s.stream)))
 	mux.HandleFunc("POST /api/heartbeat", s.ingestAuth(s.heartbeat))
 	mux.HandleFunc("POST /api/glyphs/unknown", s.ingestAuth(s.addGlyphs))
 	mux.Handle("GET /api/glyphs", s.viewAuth(http.HandlerFunc(s.listGlyphs)))
@@ -64,7 +66,12 @@ func New(store *Store, static fs.FS, opts Options) http.Handler {
 	mux.HandleFunc("POST /api/samples", s.ingestAuth(s.addSample))
 	mux.HandleFunc("GET /api/samples", s.ingestAuth(s.listSamples))
 	mux.HandleFunc("GET /api/samples/{id}", s.ingestAuth(s.samplePNG))
-	mux.Handle("GET /", s.viewAuth(http.FileServerFS(static)))
+	files := http.FileServerFS(static)
+	mux.Handle("GET /", s.viewAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Purged by every deployment; browsers revalidate so a deploy shows at once.
+		s.cachePublic(w, 86400)
+		files.ServeHTTP(w, r)
+	})))
 	return securityHeaders(mux)
 }
 
@@ -420,6 +427,12 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
+	// Viewers asking for the same page within a second or two share one CDN response.
+	if q.Has("after") {
+		s.cachePublic(w, 1)
+	} else {
+		s.cachePublic(w, 2)
+	}
 	writeJSON(w, http.StatusOK, msgs)
 }
 
@@ -430,6 +443,7 @@ func (s *Server) regions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
+	s.cachePublic(w, 10)
 	writeJSON(w, http.StatusOK, stats)
 }
 
@@ -568,6 +582,9 @@ func (s *Server) listGlyphs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
+	if r.Header.Get("Authorization") == "" {
+		s.cachePublic(w, 30)
+	}
 	writeJSON(w, http.StatusOK, gs)
 }
 
@@ -619,7 +636,9 @@ func parseLimit(s string) int {
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }

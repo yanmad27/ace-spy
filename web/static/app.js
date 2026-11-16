@@ -516,7 +516,16 @@ async function refreshRegions() {
 let pollTimer = 0;
 let pollAbort = null;
 
-// One poll for all regions; each pane keeps the messages that match it.
+function receiveLive(msgs) {
+  const fresh = msgs.filter((m) => m.id > state.streamFrom);
+  if (!fresh.length) return;
+  state.streamFrom = fresh[fresh.length - 1].id;
+  if (fresh.some((m) => !state.regions.some((r) => r.region === m.region))) refreshRegions();
+  for (const p of panes) p.receive(fresh);
+}
+
+// Fallback when server-sent events are unavailable: one poll for all regions; each
+// pane keeps the messages that match it.
 async function poll() {
   clearTimeout(pollTimer);
   if (pollAbort) pollAbort.abort();
@@ -527,12 +536,7 @@ async function poll() {
     const msgs = await api(`api/messages${qs({ after: state.streamFrom, limit: POLL_BATCH })}`, ctrl.signal);
     if (ctrl.signal.aborted) return;
     setStatus(true);
-    const fresh = msgs.filter((m) => m.id > state.streamFrom);
-    if (fresh.length) {
-      state.streamFrom = fresh[fresh.length - 1].id;
-      if (fresh.some((m) => !state.regions.some((r) => r.region === m.region))) refreshRegions();
-      for (const p of panes) p.receive(fresh);
-    }
+    receiveLive(msgs);
     full = msgs.length === POLL_BATCH;
   } catch {
     if (ctrl.signal.aborted) return;
@@ -543,7 +547,50 @@ async function poll() {
   }
 }
 
-document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && polling) poll(); });
+
+// Live updates arrive over one server-sent event stream: new messages ("message")
+// and viewer/capture status ("status"). It reconnects by itself and resumes from
+// the last message id; if it never opens, the page falls back to polling.
+let polling = false;
+let offlineTimer = 0;
+
+function startPolling() {
+  if (polling) return;
+  polling = true;
+  poll();
+  heartbeat();
+  setInterval(heartbeat, HEARTBEAT_MS);
+}
+
+function startStream() {
+  if (!window.EventSource) { startPolling(); return; }
+  const es = new EventSource(`api/stream${qs({ after: state.streamFrom, id: viewerId })}`);
+  let opened = false, failures = 0;
+  es.addEventListener("open", () => {
+    opened = true;
+    failures = 0;
+    clearTimeout(offlineTimer);
+    setStatus(true);
+  });
+  es.addEventListener("message", (ev) => {
+    try { receiveLive(JSON.parse(ev.data)); } catch (err) { console.error(err); }
+  });
+  es.addEventListener("status", (ev) => {
+    try { applyPresence(JSON.parse(ev.data)); } catch (err) { console.error(err); }
+  });
+  es.addEventListener("error", () => {
+    failures++;
+    if (!opened && failures >= 3) {
+      es.close();
+      startPolling();
+      return;
+    }
+    // Streams end every few minutes and reconnect at once; only a lasting gap is offline.
+    clearTimeout(offlineTimer);
+    offlineTimer = setTimeout(() => setStatus(false), 6000);
+  });
+}
 
 let filterTimer = 0;
 searchEl.addEventListener("input", () => {
@@ -597,20 +644,23 @@ async function heartbeat() {
       body: JSON.stringify({ id: viewerId }),
     });
     if (!r.ok) throw new Error(`${r.status}`);
-    const { online, clients, regions } = await r.json();
-    $(".n", viewersEl).textContent = online;
-    viewersEl.hidden = false;
-    live.clients = clients ?? null;
-    live.regions = regions || [];
+    applyPresence(await r.json());
   } catch {
     viewersEl.hidden = true;
     live.clients = null;
+    renderStatus();
   }
-  renderStatus();
 }
 
-heartbeat();
-setInterval(heartbeat, HEARTBEAT_MS);
+function applyPresence({ online, clients, regions }) {
+  if (online > 0) {
+    $(".n", viewersEl).textContent = online;
+    viewersEl.hidden = false;
+  }
+  live.clients = clients ?? null;
+  live.regions = regions || [];
+  renderStatus();
+}
 
 (async function init() {
   try {
@@ -630,5 +680,5 @@ setInterval(heartbeat, HEARTBEAT_MS);
     p.renderOptions();
     return p.setRegion(p.region).catch(console.error);
   }));
-  poll();
+  startStream();
 })();

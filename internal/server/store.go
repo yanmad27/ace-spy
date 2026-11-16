@@ -410,3 +410,10 @@ func (s *Store) LabelGlyph(ctx context.Context, hash, label string) (bool, error
 	tag, err := s.pool.Exec(ctx, `UPDATE glyphs SET label = $2 WHERE hash = $1`, hash, label)
 	return tag.RowsAffected() == 1, err
 }
+
+// LatestID is the id of the newest message, 0 when there is none.
+func (s *Store) LatestID(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE(max(id), 0) FROM messages`).Scan(&id)
+	return id, err
+}
