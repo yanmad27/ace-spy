@@ -452,6 +452,7 @@ function renderStatus() {
     title = "Không có ace-spy nào đang capture chat";
   }
   statusEl.textContent = text;
+  statusEl.dataset.short = { online: "LIVE", idle: "IDLE", offline: "OFFLINE" }[cls] || "…";
   statusEl.className = `status ${cls}`.trim();
   brandEl.className = `brand ${cls}`.trim();
   brandEl.title = title ? `${text.toUpperCase()} · ${title}` : text;

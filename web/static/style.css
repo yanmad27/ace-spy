@@ -383,18 +383,47 @@ body > header h1.logo::after {
 
 /* Logo + connection state as one block: the line under the logo carries the state,
    with a heartbeat running along it. */
-.brand { --c: 62, 200, 255; display: inline-flex; align-items: center; }
-.brand.online { --c: 80, 255, 140; }
-.brand.idle { --c: 255, 190, 60; }
-.brand.offline { --c: 255, 90, 80; }
-.brand .status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; padding: 0; border: 0; }
+@property --sc {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #3ec8ff;
+}
+.brand { --sc: #3ec8ff; display: inline-flex; align-items: center; transition: --sc 0.6s ease; }
+.brand.online { --sc: #50ff8c; }
+.brand.idle { --sc: #ffbe3c; }
+.brand.offline { --sc: #ff5a50; }
+.brand { position: relative; }
+/* The full status text stays for screen readers; a short label sits on the line. */
+.brand .status {
+  position: absolute;
+  right: 6px;
+  bottom: -5px;
+  z-index: 1;
+  display: block;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: #12304d;
+  box-shadow: none;
+  font-size: 0;
+  line-height: 0;
+  text-shadow: none;
+}
+.brand .status::before { display: none; }
+.brand .status::after {
+  content: attr(data-short);
+  font: 700 8px/11px Verdana, Tahoma, sans-serif;
+  letter-spacing: 1px;
+  color: var(--sc);
+  text-shadow: 0 0 4px color-mix(in srgb, var(--sc) 90%, transparent);
+}
 body > header .brand h1.logo::after {
   height: 2px;
   background:
     linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.95) 50%, transparent 100%) no-repeat,
-    linear-gradient(90deg, transparent, rgba(var(--c), 0.85) 15%, rgba(var(--c), 0.85) 85%, transparent);
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--sc) 85%, transparent) 15%, color-mix(in srgb, var(--sc) 85%, transparent) 85%, transparent);
   background-size: 28% 100%, 100% 100%;
-  box-shadow: 0 0 6px rgba(var(--c), 0.9);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--sc) 90%, transparent);
   animation: heartbeat-run 1.6s linear infinite;
   transition: box-shadow 0.3s;
 }
@@ -460,3 +489,16 @@ body > header #align:focus { outline: none; box-shadow: 0 0 8px rgba(62, 200, 25
 /* Region tags: each server's own colour. */
 .feed .tag[data-region="BCU"] { color: #ff9a2e; border-color: rgba(255, 154, 46, 0.6); font-weight: 700; }
 .feed .tag[data-region="ANI"] { color: #4db8ff; border-color: rgba(77, 184, 255, 0.6); font-weight: 700; }
+
+/* Header controls share one height and corner radius. */
+body > header { --ctl-h: 32px; --ctl-r: 6px; }
+body > header #search,
+body > header .viewers,
+.settings summary {
+  box-sizing: border-box;
+  height: var(--ctl-h);
+  border-radius: var(--ctl-r);
+}
+body > header #search { padding: 0 10px; }
+body > header .viewers { padding: 0 10px 0 8px; }
+.settings summary { padding: 0 12px; }
