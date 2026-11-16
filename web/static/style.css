@@ -388,7 +388,14 @@ body > header h1.logo::after {
   inherits: true;
   initial-value: #3ec8ff;
 }
-.brand { --sc: #3ec8ff; display: inline-flex; align-items: center; transition: --sc 0.6s ease; }
+@property --jet {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #3ec8ff;
+}
+/* --line: the line's settled colour (set when a sweep completes); --jet follows it
+   with a short fade, so the jet and glow change as the sweep reaches them. */
+.brand { --sc: #3ec8ff; display: inline-flex; align-items: center; transition: --jet 0.4s ease; }
 .brand.online { --sc: #50ff8c; }
 .brand.idle { --sc: #ffbe3c; }
 .brand.offline { --sc: #ff5a50; }
@@ -421,13 +428,14 @@ body > header h1.logo::after {
    and the heartbeat sweep on top. All layers share one faded-ends mask; only
    transform and opacity animate, so it stays smooth. */
 body > header .brand h1.logo::after { content: none; }
+.brand { --beat-dur: 1.6s; }
 .brand .beat {
   position: absolute;
   left: 6px;
   right: 2px;
   bottom: 0;
   height: 2px;
-  filter: drop-shadow(0 0 3px var(--sc));
+  filter: drop-shadow(0 0 3px var(--jet));
 }
 .brand .track {
   position: absolute;
@@ -439,34 +447,29 @@ body > header .brand h1.logo::after { content: none; }
 }
 .brand .track i { position: absolute; inset: 0; will-change: transform, opacity; }
 .brand .base { background: var(--line, #3ec8ff); }
-.brand .fill { background: var(--to, transparent); transform: translateX(-100%); visibility: hidden; }
-.brand .fill::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 22px;
-  background: linear-gradient(90deg, transparent, #ffffff);
+/* The new colour rides right behind the sweep: same duration, linear, started on the
+   sweep's cycle boundary. Its right edge travels from -14% to 114% of the track,
+   exactly the sweep's centre (28% wide, -100% -> 357%). */
+.brand .track .fill {
+  left: -200%;
+  right: auto;
+  width: 200%;
+  background: var(--to, transparent);
+  transform: translateX(-7%);
+  visibility: hidden;
 }
-.brand.wiping .fill { visibility: visible; animation: beat-fill 1.1s cubic-bezier(0.45, 0, 0.25, 1) forwards; }
-.brand.wiping .fill::after { animation: beat-tip 1.1s linear forwards; }
+.brand.wiping .track .fill { visibility: visible; animation: beat-fill var(--beat-dur) linear forwards; }
 @keyframes beat-fill {
-  from { transform: translateX(-100%); }
-  75%, to { transform: translateX(0); }
-}
-@keyframes beat-tip {
-  0%, 68% { opacity: 1; }
-  to { opacity: 0; }
+  from { transform: translateX(-7%); }
+  to { transform: translateX(57%); }
 }
 .brand .sweep {
   right: auto;
   width: 28%;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent);
-  animation: beat-run 1.6s linear infinite;
+  animation: beat-run var(--beat-dur) linear infinite;
 }
-.brand.idle .sweep { animation-duration: 2.6s; }
-.brand.offline .sweep { opacity: 0; transition: opacity 0.4s; }
+.brand.offline:not(.wiping):not(.pending) .sweep { opacity: 0; transition: opacity 0.4s; }
 .brand.offline .base { animation: beat-flat 1.2s ease-in-out infinite; }
 @keyframes beat-run {
   from { transform: translateX(-100%); }
@@ -545,7 +548,7 @@ body > header .viewers { padding: 0 10px 0 8px; }
 .settings summary { padding: 0 12px; }
 /* The jet takes the connection state's colour too. */
 .brand .logo-jet {
-  fill: color-mix(in srgb, var(--sc) 65%, #ffffff);
-  stroke: var(--sc);
-  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--sc) 90%, transparent));
+  fill: color-mix(in srgb, var(--jet) 65%, #ffffff);
+  stroke: var(--jet);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--jet) 90%, transparent));
 }

@@ -440,22 +440,38 @@ const live = { connected: null, clients: null, regions: [] };
 const STATE_COLORS = { online: "#50ff8c", idle: "#ffbe3c", offline: "#ff5a50", "": "#3ec8ff" };
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
-// Sweeps the new state colour along the logo line; the line keeps its old colour
-// until the sweep reaches the end.
+// The new state colour follows the logo line's light sweep: it starts on the sweep's
+// next cycle and runs with it, so there is one streak at one speed.
+let pendingColor = null;
+
 function wipeLine(color, first) {
   if (first || reduceMotion.matches) {
-    brandEl.style.setProperty("--line", color);
+    setLine(color);
     return;
   }
-  brandEl.style.setProperty("--to", color);
-  brandEl.classList.remove("wiping");
-  void brandEl.offsetWidth; // restart the animation
+  pendingColor = color;
+  brandEl.classList.add("pending");
+}
+
+function setLine(color) {
+  brandEl.style.setProperty("--line", color);
+  brandEl.style.setProperty("--jet", color);
+}
+
+function startWipe() {
+  if (!pendingColor || brandEl.classList.contains("wiping")) return;
+  brandEl.style.setProperty("--to", pendingColor);
+  pendingColor = null;
+  brandEl.classList.remove("pending");
   brandEl.classList.add("wiping");
 }
 
+brandEl.addEventListener("animationiteration", (ev) => {
+  if (ev.animationName === "beat-run") startWipe();
+});
 brandEl.addEventListener("animationend", (ev) => {
   if (ev.animationName !== "beat-fill") return;
-  brandEl.style.setProperty("--line", brandEl.style.getPropertyValue("--to"));
+  setLine(brandEl.style.getPropertyValue("--to"));
   brandEl.classList.remove("wiping");
 });
 
@@ -478,7 +494,8 @@ function renderStatus() {
   statusEl.className = `status ${cls}`.trim();
   if (brandEl.dataset.state !== cls) wipeLine(STATE_COLORS[cls] || STATE_COLORS[""], brandEl.dataset.state === undefined);
   brandEl.dataset.state = cls;
-  brandEl.className = `brand ${cls}${brandEl.classList.contains("wiping") ? " wiping" : ""}`;
+  brandEl.classList.remove("online", "idle", "offline");
+  if (cls) brandEl.classList.add(cls);
   brandEl.title = title ? `${text.toUpperCase()} · ${title}` : text;
 }
 
