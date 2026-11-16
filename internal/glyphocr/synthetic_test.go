@@ -169,3 +169,30 @@ func TestTokenColors(t *testing.T) {
 		t.Errorf("line 1 colours %v", c)
 	}
 }
+
+// The chat box's bright bottom border covers the descenders of the newest line;
+// "y" must not turn into "v" (seen live as "nàv", "câv").
+func TestBorderHidesDescenders(t *testing.T) {
+	e, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"^[10:51] [MotA] [BC] xin 1 cây", "thấy đấm MG nên ấy", "tầm này lấy mấy gì"}
+	pix, w, h := drawFrame(t, e, want, [][3]byte{{0xea, 0x22, 0x22}}, 320)
+	lastTop := 2 + (len(want)-1)*linePitch - e.top + 1
+	h += 6 // the border is taller than the frame's bottom margin
+	pix = append(pix, make([]byte, 6*w*4)...)
+	for y := lastTop + 16; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			pix[i], pix[i+1], pix[i+2] = 0x70, 0x9a, 0xb4
+		}
+	}
+	got, err := e.Recognize(pix, w, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+}

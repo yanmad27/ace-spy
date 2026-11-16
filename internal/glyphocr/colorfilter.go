@@ -25,7 +25,8 @@ type glyphColor struct {
 	ink     bool
 }
 
-func (e *Engine) spanColor(bgra []byte, w, h, top int, sp Span) glyphColor {
+func (e *Engine) spanColor(bgra []byte, w, h int, l Line, sp Span) glyphColor {
+	top := l.Top
 	g := e.byText[sp.Text]
 	if g == nil {
 		return glyphColor{}
@@ -41,7 +42,7 @@ func (e *Engine) spanColor(bgra []byte, w, h, top int, sp Span) glyphColor {
 		}
 		for r := 0; r < e.cellH; r++ {
 			y := top + r
-			if g.cols[i]>>r&1 == 0 || y < 0 || y >= h {
+			if g.cols[i]>>r&1 == 0 || y < 0 || y >= h || (l.Visible != 0 && l.Visible>>r&1 == 0) {
 				continue
 			}
 			p := (y*w + x) * 4
@@ -86,7 +87,7 @@ func (e *Engine) trimJunk(bgra []byte, w, h int, lines []Line) []Line {
 			if sp.Text == " " {
 				continue
 			}
-			c := e.spanColor(bgra, w, h, l.Top, sp)
+			c := e.spanColor(bgra, w, h, l, sp)
 			colors[li][si] = c
 			if !c.ink {
 				continue
@@ -191,7 +192,7 @@ func (e *Engine) tokenColors(bgra []byte, w, h int, l Line) []string {
 			continue
 		}
 		started, spaces, inToken = true, 0, true
-		if c := e.spanColor(bgra, w, h, l.Top, sp); c.ink && c.uniform {
+		if c := e.spanColor(bgra, w, h, l, sp); c.ink && c.uniform {
 			votes[c.rgb]++
 		}
 	}

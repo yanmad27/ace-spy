@@ -32,6 +32,9 @@ const (
 	// is not chat (e.g. the game's mouse cursor drawn over the chat box).
 	maxGapSpaces = 4
 	cacheSize    = 4096
+	// A row inked across this share of the width is UI chrome (the chat box's border),
+	// not text: it hides whatever text pixels lie under it.
+	borderShare = 0.75
 )
 
 type glyph struct {
@@ -59,6 +62,9 @@ type Span struct {
 type Line struct {
 	Top   int
 	Spans []Span
+	// Visible has bit r set when cell row r is neither outside the image nor under
+	// UI chrome; 0 means all rows are visible.
+	Visible uint32
 }
 
 // Text joins the line's glyphs, dropping anything after a wide blank gap (not chat,
@@ -182,13 +188,21 @@ func (e *Engine) RecognizeLines(bgra []byte, w, h int) ([]Line, error) {
 			}
 		}
 	}
+	hidden := make([]bool, h)
+	for y := 0; y < h; y++ {
+		if float64(rowInk[y]) >= borderShare*float64(w) {
+			hidden[y] = true
+			rowInk[y] = 0
+			clear(ink[y*w : (y+1)*w])
+		}
+	}
 	var lines []Line
 	for _, top := range e.lineTops(rowInk) {
 		// Skip lines cut by the capture edge; they are read whole once chat scrolls.
 		if top+e.top-1 < 0 || top+e.top+15 > h {
 			continue
 		}
-		if l, ok := e.readLine(ink, w, h, top); ok {
+		if l, ok := e.readLine(ink, hidden, w, h, top); ok {
 			lines = append(lines, l)
 		}
 	}
@@ -239,10 +253,23 @@ func (e *Engine) column(ink []bool, w, h, x, top int) uint32 {
 	return v
 }
 
-func (e *Engine) readLine(ink []bool, w, h, top int) (Line, bool) {
+// visibleRows marks the cell rows at top that are inside the image and not under a
+// border. Glyph pixels in other rows are unknown, so they never count as mismatches.
+func (e *Engine) visibleRows(hidden []bool, top int) uint32 {
+	var v uint32
+	for r := 0; r < e.cellH; r++ {
+		if y := top + r; y >= 0 && y < len(hidden) && !hidden[y] {
+			v |= 1 << r
+		}
+	}
+	return v
+}
+
+func (e *Engine) readLine(ink, hidden []bool, w, h, top int) (Line, bool) {
 	var bestLine Line
 	bestCost, found := 0.0, false
 	for dy := -1; dy <= 1; dy++ {
+		visible := e.visibleRows(hidden, top+dy)
 		cols := make([]uint32, w)
 		last := -1
 		for x := 0; x < w; x++ {
@@ -255,10 +282,10 @@ func (e *Engine) readLine(ink []bool, w, h, top int) (Line, bool) {
 			continue
 		}
 		cols = cols[:min(last+10, w)] // room for a trailing glyph's full advance
-		spans, cost := e.decodeCached(cols)
+		spans, cost := e.decodeCached(cols, visible)
 		norm := float64(cost) / float64(len(cols))
 		if !found || norm < bestCost {
-			bestLine, bestCost, found = Line{Top: top + dy, Spans: spans}, norm, true
+			bestLine, bestCost, found = Line{Top: top + dy, Spans: spans, Visible: visible}, norm, true
 		}
 	}
 	return bestLine, found
@@ -273,9 +300,11 @@ func (e *Engine) coreMask() uint32 {
 	return m
 }
 
-func (e *Engine) decodeCached(cols []uint32) ([]Span, int) {
+func (e *Engine) decodeCached(cols []uint32, visible uint32) ([]Span, int) {
 	h := fnv.New64a()
 	b := make([]byte, 4)
+	b[0], b[1], b[2], b[3] = byte(visible), byte(visible>>8), byte(visible>>16), byte(visible>>24)
+	h.Write(b)
 	for _, c := range cols {
 		b[0], b[1], b[2], b[3] = byte(c), byte(c>>8), byte(c>>16), byte(c>>24)
 		h.Write(b)
@@ -287,7 +316,7 @@ func (e *Engine) decodeCached(cols []uint32) ([]Span, int) {
 		return c.spans, c.cost
 	}
 	e.mu.Unlock()
-	spans, cost := e.decode(cols)
+	spans, cost := e.decode(cols, visible)
 	e.mu.Lock()
 	if len(e.order) >= cacheSize {
 		delete(e.cache, e.order[0])
@@ -301,7 +330,8 @@ func (e *Engine) decodeCached(cols []uint32) ([]Span, int) {
 
 // decode finds the minimum-cost segmentation of cols into glyphs (each may be one
 // pixel narrower or wider than its nominal advance) and unexplained skipped columns.
-func (e *Engine) decode(cols []uint32) ([]Span, int) {
+// Only the visible rows of each glyph are compared.
+func (e *Engine) decode(cols []uint32, visible uint32) ([]Span, int) {
 	n := len(cols)
 	const inf = 1 << 30
 	best := make([]int, n+1)
@@ -311,6 +341,16 @@ func (e *Engine) decode(cols []uint32) ([]Span, int) {
 		best[i] = inf
 	}
 	core := e.coreMask()
+	// A glyph whose ink is all hidden would match anything for free.
+	seen := make([]bool, len(e.glyphs))
+	for gi := range e.glyphs {
+		for _, c := range e.glyphs[gi].cols {
+			if c&visible != 0 {
+				seen[gi] = true
+				break
+			}
+		}
+	}
 	img := make([]uint32, 0, 8)
 	for x := 0; x < n; x++ {
 		if best[x] == inf {
@@ -341,6 +381,9 @@ func (e *Engine) decode(cols []uint32) ([]Span, int) {
 		}
 		for gi := range e.glyphs {
 			g := &e.glyphs[gi]
+			if !seen[gi] && g.ink > 0 {
+				continue
+			}
 			for dw := -1; dw <= 1; dw++ {
 				width := g.adv + dw
 				if width <= 0 || x+width > n {
@@ -356,11 +399,11 @@ func (e *Engine) decode(cols []uint32) ([]Span, int) {
 						t = g.cols[i]
 					}
 					v := at(i)
-					cost += costScale*(bits.OnesCount32((v^t)&g.care)+bits.OnesCount32(v&g.outside)) - bits.OnesCount32(v&t)
+					cost += costScale*(bits.OnesCount32((v^t)&g.care&visible)+bits.OnesCount32(v&g.outside&visible)) - bits.OnesCount32(v&t)
 				}
 				for j, ov := range g.over {
 					if x+width+j < n {
-						cost += costScale * bits.OnesCount32(ov&^cols[x+width+j]) // missing horn etc.
+						cost += costScale * bits.OnesCount32(ov&visible&^cols[x+width+j]) // missing horn etc.
 					}
 				}
 				if c := best[x] + cost; c < best[x+width] {

@@ -108,12 +108,33 @@ function bodyRuns(body, colors) {
   const runs = [];
   toks.forEach((tok, i) => {
     const raw = i < pad ? null : cs[i - pad];
-    const c = !raw || raw === "-" ? null : GAME_COLORS[raw] || `#${raw}`;
+    const c = gameColor(raw);
     const last = runs[runs.length - 1];
     if (last && last[1] === c) last[0] += ` ${tok}`;
     else runs.push([runs.length ? ` ${tok}` : tok, c]);
   });
   return runs;
+}
+
+function gameColor(raw) {
+  return !raw || raw === "-" ? null : GAME_COLORS[raw] || `#${raw}`;
+}
+
+// Captured colours of the header groups: m.colors covers the trailing tokens of
+// m.text, and the groups follow the "^[hh:mm]" token. Leaders keep their gold.
+function groupColors(m, groups) {
+  const toks = m.text.split(/\s+/).filter(Boolean);
+  const colors = m.colors || [];
+  const pad = toks.length - colors.length;
+  const out = [];
+  let i = 1;
+  for (const [cls, g] of groups) {
+    const n = g.split(/\s+/).length;
+    if (toks.slice(i, i + n).join(" ") !== g) break;
+    out.push(cls.includes("leader") || i < pad ? null : gameColor(colors[i - pad]));
+    i += n;
+  }
+  return out;
 }
 
 function row(m, showRegion) {
@@ -135,7 +156,9 @@ function row(m, showRegion) {
   const f = notice ? null : formatted(m.text);
   const text = notice ? m.text.slice(NOTICE_PREFIX.length) : m.text;
   const body = f ? bodyRuns(f.body, m.colors).map(([t, c]) => ["text", t, c]) : [["text", text, null]];
-  const parts = f ? [["chan", f.channel], ["head", f.head], ...f.groups, ["sep", " "], ...body]
+  const gc = f ? groupColors(m, f.groups) : [];
+  const groups = f ? f.groups.map(([cls, g], i) => [cls, g, gc[i] || null]) : [];
+  const parts = f ? [["chan", f.channel], ["head", f.head], ...groups, ["sep", " "], ...body]
     : notice ? [["chan", ""], ...body] : body;
   for (const [cls, value, color] of parts) {
     const span = document.createElement("span");
