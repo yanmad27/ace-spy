@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS viewers (
 	seen_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_viewers_seen ON viewers(seen_at);
+ALTER TABLE viewers ADD COLUMN IF NOT EXISTS first_seen BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE viewers ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS capturers (
 	client  TEXT   NOT NULL,
@@ -264,18 +265,19 @@ func (s *Store) Prune(ctx context.Context, olderThan int64) (int64, error) {
 }
 
 // Presence records a heartbeat from viewer id at now and returns how many viewers,
-// including this one, sent a heartbeat at or after activeSince. Rows older than
-// staleBefore are deleted on the way.
+// including this one, sent a heartbeat at or after activeSince. Other viewers count
+// only from their second heartbeat, which filters out link-preview bots and pages
+// closed within seconds. Rows older than staleBefore are deleted on the way.
 func (s *Store) Presence(ctx context.Context, id string, now, activeSince, staleBefore int64) (int64, error) {
 	var others int64
 	err := s.pool.QueryRow(ctx, `
 		WITH up AS (
-			INSERT INTO viewers (id, seen_at) VALUES ($1, $2)
+			INSERT INTO viewers (id, seen_at, first_seen) VALUES ($1, $2, $2)
 			ON CONFLICT (id) DO UPDATE SET seen_at = EXCLUDED.seen_at
 		), gone AS (
 			DELETE FROM viewers WHERE seen_at < $4
 		)
-		SELECT COUNT(*) FROM viewers WHERE seen_at >= $3 AND id <> $1`,
+		SELECT COUNT(*) FROM viewers WHERE seen_at >= $3 AND seen_at > first_seen AND id <> $1`,
 		id, now, activeSince, staleBefore).Scan(&others)
 	return others + 1, err
 }

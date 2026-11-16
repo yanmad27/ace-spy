@@ -237,6 +237,25 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		msgs = append(msgs, Message{Client: client, Region: region, Text: text, CapturedAt: ts, ReceivedAt: nowMs, Colors: cleanColors(m.Colors, text)})
 	}
 
+	// Pushing chat also proves the client is capturing (clients older than the heartbeat).
+	if len(msgs) > 0 {
+		name := client
+		if name == "" {
+			name = "unknown"
+		}
+		seen := map[string]bool{}
+		var regions []string
+		for _, m := range msgs {
+			if !seen[m.Region] {
+				seen[m.Region] = true
+				regions = append(regions, m.Region)
+			}
+		}
+		if err := s.store.Heartbeat(r.Context(), name, regions, nowMs, now.Add(-presenceStale).UnixMilli()); err != nil {
+			log.Printf("ingest heartbeat: %v", err)
+		}
+	}
+
 	if s.opts.Dedupe > 0 {
 		var err error
 		if msgs, err = s.dropDuplicates(r.Context(), msgs, now.Add(-s.opts.Dedupe).UnixMilli()); err != nil {

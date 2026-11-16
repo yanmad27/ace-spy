@@ -237,7 +237,7 @@ func TestPresenceCountsDistinctViewers(t *testing.T) {
 	for _, step := range []struct {
 		id   string
 		want int64
-	}{{a, 1}, {a, 1}, {b, 2}, {a, 2}} {
+	}{{a, 1}, {b, 1}, {a, 1}, {b, 2}, {a, 2}} {
 		if code, n := beat(step.id); code != 200 || n != step.want {
 			t.Fatalf("beat(%s) = %d, %d; want 200, %d", step.id[:1], code, n, step.want)
 		}
@@ -280,5 +280,12 @@ func TestHeartbeatMakesLive(t *testing.T) {
 	}
 	if c, r := state(); c != 2 || strings.Join(r, ",") != "ANI,BCU" {
 		t.Fatalf("after heartbeat: %d %v", c, r)
+	}
+	ingest := `{"client":"pc3","messages":[{"region":"ZZZ","text":"^[14:41] [DR] [SV] +5 rag ngay di ae"}]}`
+	if resp := do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, ingest); resp.StatusCode != http.StatusOK {
+		t.Fatalf("ingest = %d", resp.StatusCode)
+	}
+	if c, r := state(); c != 3 || strings.Join(r, ",") != "ANI,BCU,ZZZ" {
+		t.Fatalf("after ingest: %d %v", c, r)
 	}
 }
