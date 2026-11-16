@@ -395,15 +395,13 @@ body > header h1.logo::after {
 .brand { position: relative; }
 /* The full status text stays for screen readers; a short label sits on the line. */
 .brand .status {
-  position: absolute;
-  right: 6px;
-  bottom: -5px;
-  z-index: 1;
+  position: static;
+  align-self: flex-end;
   display: block;
-  padding: 0 4px;
+  margin: 0 0 -4px 3px;
+  padding: 0;
   border: 0;
-  border-radius: 3px;
-  background: #12304d;
+  background: none;
   box-shadow: none;
   font-size: 0;
   line-height: 0;
