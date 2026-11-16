@@ -155,6 +155,7 @@ function row(m, showRegion) {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = m.region;
+    tag.dataset.region = m.region.toUpperCase();
     hw.append(tag);
   }
   const notice = m.text.startsWith(NOTICE_PREFIX);
@@ -255,7 +256,9 @@ class Pane {
       const hw = li.firstElementChild;
       const first = hw.firstElementChild, last = hw.lastElementChild;
       if (!first || li.classList.contains("notice")) continue;
-      w = Math.max(w, Math.ceil(last.getBoundingClientRect().right - first.getBoundingClientRect().left));
+      // min-width is border-box: include the column's own padding.
+      const pad = parseFloat(getComputedStyle(hw).paddingRight) || 0;
+      w = Math.max(w, Math.ceil(last.getBoundingClientRect().right - first.getBoundingClientRect().left + pad));
     }
     if (w !== this.headW) {
       this.headW = w;
@@ -403,6 +406,10 @@ class Pane {
 }
 
 const panes = [...document.querySelectorAll(".pane")].map((el, i) => new Pane(el, i));
+// Header widths measured before the web font loaded are off by a few px: refit.
+document.fonts?.ready.then(() => {
+  for (const p of panes) { p.headW = 0; p.fitHeader([...p.feed.children]); }
+});
 const URL_KEYS = ["left", "right"];
 
 function setSingle(on) {
@@ -412,6 +419,11 @@ function setSingle(on) {
 }
 
 singleEl.addEventListener("change", () => { setSingle(singleEl.checked); syncURL(); });
+
+// Settings live in localStorage: align (ace-spy.align), single (ace-spy.single), autoscroll.
+const AUTOSCROLL_KEY = "ace-spy.autoscroll";
+autoEl.checked = load(AUTOSCROLL_KEY) !== "0";
+autoEl.addEventListener("change", () => save(AUTOSCROLL_KEY, autoEl.checked ? "1" : "0"));
 
 function syncURL() {
   const p = new URLSearchParams();
@@ -516,6 +528,10 @@ function setAlign(v) {
 }
 setAlign(load(ALIGN_KEY) || "auto");
 alignEl.addEventListener("change", () => setAlign(alignEl.value));
+
+const settingsEl = $("#settings");
+document.addEventListener("click", (ev) => { if (!settingsEl.contains(ev.target)) settingsEl.open = false; });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") settingsEl.open = false; });
 
 // Presence: one random id per browser, so several tabs count as one viewer.
 const HEARTBEAT_MS = 15000;

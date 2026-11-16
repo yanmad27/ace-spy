@@ -15,18 +15,23 @@
     </div>
     <span id="viewers" class="viewers" title="Số người đang xem" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3.2"/></svg><span class="n">0</span><span class="sr">người đang xem</span></span>
     <input id="search" type="search" placeholder="Lọc nội dung…" autocomplete="off">
-    <label class="toggle">Căn cột
-      <select id="align" aria-label="Căn cột tin nhắn">
-        <option value="auto">Tự động</option>
-        <option value="240">240px</option>
-        <option value="280">280px</option>
-        <option value="320">320px</option>
-        <option value="360">360px</option>
-        <option value="off">Tắt</option>
-      </select>
-    </label>
-    <label class="toggle"><input id="single" type="checkbox"> 1 khung</label>
-    <label class="toggle"><input id="autoscroll" type="checkbox" checked> Tự cuộn</label>
+    <details id="settings" class="settings">
+      <summary title="Cài đặt"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.6 4.9-1.7 1 .1 1.9-1.7 1.7-1.9-.1-1 1.7h-2.4l-1-1.7-1.9.1-1.7-1.7.1-1.9-1.7-1v-2.8l1.7-1-.1-1.9 1.7-1.7 1.9.1 1-1.7h2.4l1 1.7 1.9-.1 1.7 1.7-.1 1.9 1.7 1Z"/></svg><span>Cài đặt</span></summary>
+      <div class="menu">
+        <label class="row">Căn cột tin
+          <select id="align" aria-label="Căn cột tin nhắn">
+            <option value="auto">Tự động</option>
+            <option value="240">240px</option>
+            <option value="280">280px</option>
+            <option value="320">320px</option>
+            <option value="360">360px</option>
+            <option value="off">Tắt</option>
+          </select>
+        </label>
+        <label class="row"><span>Chỉ 1 khung</span><input id="single" type="checkbox"></label>
+        <label class="row"><span>Tự cuộn xuống tin mới</span><input id="autoscroll" type="checkbox" checked></label>
+      </div>
+    </details>
   </header>
   <div class="panes">
     <section class="pane" data-pane="0">

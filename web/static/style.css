@@ -381,33 +381,73 @@ body > header h1.logo::after {
 .glyphs button { padding: 4px 12px; border-radius: 6px; border: 1px solid #3ec8ff; background: rgba(30, 90, 150, 0.9); color: #fff; cursor: pointer; }
 .glyphs .status-text { font-size: 12px; color: #b8d4ee; }
 
-/* Logo + connection state as one block: the frame's colour is the state. */
-.brand {
-  --c: 62, 200, 255;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 12px 3px 8px;
-  border: 1px solid rgba(var(--c), 0.8);
-  border-radius: 999px;
-  background: rgba(8, 20, 32, 0.55);
-  box-shadow: 0 0 8px rgba(var(--c), 0.55), inset 0 0 8px rgba(var(--c), 0.2);
-  transition: border-color 0.3s, box-shadow 0.3s;
-}
+/* Logo + connection state as one block: the line under the logo carries the state,
+   with a heartbeat running along it. */
+.brand { --c: 62, 200, 255; display: inline-flex; align-items: center; }
 .brand.online { --c: 80, 255, 140; }
 .brand.idle { --c: 255, 190, 60; }
 .brand.offline { --c: 255, 90, 80; }
-.brand .status {
-  font-size: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  box-shadow: none;
-  gap: 0;
-  text-shadow: none;
+.brand .status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; padding: 0; border: 0; }
+body > header .brand h1.logo::after {
+  height: 2px;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.95) 50%, transparent 100%) no-repeat,
+    linear-gradient(90deg, transparent, rgba(var(--c), 0.85) 15%, rgba(var(--c), 0.85) 85%, transparent);
+  background-size: 28% 100%, 100% 100%;
+  box-shadow: 0 0 6px rgba(var(--c), 0.9);
+  animation: heartbeat-run 1.6s linear infinite;
+  transition: box-shadow 0.3s;
 }
-.brand .status::before { width: 9px; height: 9px; }
-.brand .status:not(.online):not(.offline)::before { animation: live-pulse 1.6s ease-in-out infinite; }
+.brand.idle h1.logo::after { animation-duration: 2.6s; }
+.brand.offline h1.logo::after { animation: heartbeat-flat 1.2s ease-in-out infinite; background-size: 0 0, 100% 100%; }
+@keyframes heartbeat-run {
+  from { background-position: -40% 0, 0 0; }
+  to { background-position: 140% 0, 0 0; }
+}
+@keyframes heartbeat-flat { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { body > header .brand h1.logo::after { animation: none; } }
+
+/* The header's backdrop-filter makes a stacking context; lift it over the panes so
+   the settings menu is not covered. */
+body > header { position: relative; z-index: 20; }
+.settings { position: relative; }
+.settings summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid rgba(62, 200, 255, 0.6);
+  border-radius: 999px;
+  background: rgba(8, 20, 32, 0.55);
+  color: #e8fbff;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.settings summary::-webkit-details-marker { display: none; }
+.settings summary svg { width: 16px; height: 16px; fill: none; stroke: #3ec8ff; stroke-width: 1.6; transition: transform 0.3s; }
+.settings[open] summary { box-shadow: 0 0 8px rgba(62, 200, 255, 0.7); }
+.settings[open] summary svg { transform: rotate(60deg); }
+.settings .menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 10;
+  display: grid;
+  gap: 10px;
+  min-width: 230px;
+  padding: 12px 14px;
+  border: 1px solid #3ec8ff;
+  border-radius: 8px;
+  background: rgba(10, 28, 46, 0.97);
+  box-shadow: 0 0 12px rgba(62, 200, 255, 0.45), 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #e8fbff;
+  font-size: 13px;
+}
+.settings .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.settings input[type="checkbox"] { width: 16px; height: 16px; accent-color: #3ec8ff; }
+@media (max-width: 600px) { .settings summary span { display: none; } }
 body > header #align {
   padding: 3px 6px;
   border: 1px solid rgba(62, 200, 255, 0.6);
@@ -417,3 +457,6 @@ body > header #align {
   font: inherit;
 }
 body > header #align:focus { outline: none; box-shadow: 0 0 8px rgba(62, 200, 255, 0.7); }
+/* Region tags: each server's own colour. */
+.feed .tag[data-region="BCU"] { color: #ff9a2e; border-color: rgba(255, 154, 46, 0.6); font-weight: 700; }
+.feed .tag[data-region="ANI"] { color: #4db8ff; border-color: rgba(77, 184, 255, 0.6); font-weight: 700; }
