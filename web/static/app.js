@@ -74,8 +74,6 @@ const MSG_RE = /^([!*@#$%^]?)\[(\d{2}:\d{2})\]((?:\s*\[[^\]]*\])*)\s*:?\s*([\s\S
 const HEADER = { "*": { count: 2, player: 1 }, "^": { count: 2, player: 0 } };
 const DEFAULT_HEADER = { count: 1, player: 0 };
 
-// Titles whose holder's name is highlighted (folded: no diacritics, letters only).
-const LEADER_TITLES = new Set(["tongthong", "tongtulenh"]);
 const NOTICE_PREFIX = "§ ";
 
 function formatted(text) {
@@ -86,11 +84,10 @@ function formatted(text) {
   const header = groups.slice(0, layout.count);
   const extra = groups.slice(layout.count).join(" ");
   const player = Math.min(layout.player, header.length - 1);
-  const leader = m[1] === "*" && player > 0 && LEADER_TITLES.has(foldText(header[0]));
   return {
     channel: m[1],
     head: `[${m[2]}]`,
-    groups: header.map((g, i) => [i === player ? (leader ? "player leader" : "player") : "group", g]),
+    groups: header.map((g, i) => [i === player ? "player" : "group", g]),
     body: extra ? `${extra} ${m[4]}`.trim() : m[4],
   };
 }
@@ -121,7 +118,7 @@ function gameColor(raw) {
 }
 
 // Captured colours of the header groups: m.colors covers the trailing tokens of
-// m.text, and the groups follow the "^[hh:mm]" token. Leaders keep their gold.
+// m.text, and the groups follow the "^[hh:mm]" token.
 function groupColors(m, groups) {
   const toks = m.text.split(/\s+/).filter(Boolean);
   const colors = m.colors || [];
@@ -131,7 +128,7 @@ function groupColors(m, groups) {
   for (const [cls, g] of groups) {
     const n = g.split(/\s+/).length;
     if (toks.slice(i, i + n).join(" ") !== g) break;
-    out.push(cls.includes("leader") || i < pad ? null : gameColor(colors[i - pad]));
+    out.push(i < pad ? null : gameColor(colors[i - pad]));
     i += n;
   }
   return out;
