@@ -49,6 +49,8 @@ type Message struct {
 	Text   string   `json:"text"`
 	TS     int64    `json:"ts"`
 	Colors []string `json:"colors,omitempty"` // colours of the trailing tokens of Text
+	// Revises is an earlier reading of this message that this one replaces.
+	Revises string `json:"revises,omitempty"`
 }
 
 type payload struct {

@@ -23,15 +23,24 @@ type Unknown struct {
 	Context string   `json:"context"` // the line's text with UnknownMark where it sits
 }
 
-// RecognizeAll is RecognizeColored plus the unknown glyphs found on the lines.
-func (e *Engine) RecognizeAll(bgra []byte, w, h int) ([]string, [][]string, []Unknown, error) {
+// Result is a full recognition of one frame. Lines, Colors and Partial are aligned;
+// Partial marks lines with some glyph rows hidden (cut by the frame edge or covered by
+// the chat box border), which may read differently once the chat scrolls.
+type Result struct {
+	Lines   []string
+	Colors  [][]string
+	Partial []bool
+	Unknown []Unknown
+}
+
+// RecognizeAll is RecognizeColored plus partial-line flags and unknown glyphs.
+func (e *Engine) RecognizeAll(bgra []byte, w, h int) (Result, error) {
 	lines, err := e.RecognizeLines(bgra, w, h)
 	if err != nil {
-		return nil, nil, nil, err
+		return Result{}, err
 	}
-	var texts []string
-	var colors [][]string
-	var unknown []Unknown
+	var res Result
+	glyphRows := e.glyphRows()
 	for _, l := range lines {
 		text := l.Text()
 		if text == "" {
@@ -41,11 +50,21 @@ func (e *Engine) RecognizeAll(bgra []byte, w, h int) ([]string, [][]string, []Un
 		if len(toks) != len(strings.Fields(text)) {
 			toks = nil
 		}
-		texts = append(texts, text)
-		colors = append(colors, toks)
-		unknown = append(unknown, e.unknowns(bgra, w, h, l)...)
+		res.Lines = append(res.Lines, text)
+		res.Colors = append(res.Colors, toks)
+		res.Partial = append(res.Partial, l.Visible != 0 && l.Visible&glyphRows != glyphRows)
+		res.Unknown = append(res.Unknown, e.unknowns(bgra, w, h, l)...)
 	}
-	return texts, colors, unknown, nil
+	return res, nil
+}
+
+// glyphRows are the cell rows a line's own glyphs use, diacritics to descenders.
+func (e *Engine) glyphRows() uint32 {
+	var m uint32
+	for r := max(e.top-1, 0); r <= min(e.top+14, e.cellH-1); r++ {
+		m |= 1 << r
+	}
+	return m
 }
 
 func (e *Engine) unknowns(bgra []byte, w, h int, l Line) []Unknown {

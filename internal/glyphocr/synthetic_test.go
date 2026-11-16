@@ -196,3 +196,29 @@ func TestBorderHidesDescenders(t *testing.T) {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
+
+// Underscores sit on the row the border hides; names keep them ("[____NVFuu____]").
+func TestBorderHidesUnderscores(t *testing.T) {
+	e, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"^[12:58] [Audi] mua DP de", "^[12:59] [____NVFuu____] [BHC] ani den map bcu"}
+	pix, w, h := drawFrame(t, e, want, [][3]byte{{0xea, 0x22, 0x22}}, 420)
+	lastTop := 2 + (len(want)-1)*linePitch - e.top + 1
+	h += 6
+	pix = append(pix, make([]byte, 6*w*4)...)
+	for y := lastTop + 16; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			pix[i], pix[i+1], pix[i+2] = 0x70, 0x9a, 0xb4
+		}
+	}
+	got, err := e.Recognize(pix, w, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+}

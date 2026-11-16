@@ -251,7 +251,7 @@ func (e *Engine) RecognizeLines(bgra []byte, w, h int) ([]Line, error) {
 			continue
 		}
 		if l, ok := e.readLine(ink, hidden, w, h, top); ok {
-			lines = append(lines, l)
+			lines = append(lines, e.hiddenUnderscores(l))
 		}
 	}
 	return e.trimJunk(bgra, w, h, lines), nil
@@ -299,6 +299,58 @@ func (e *Engine) column(ink []bool, w, h, x, top int) uint32 {
 		}
 	}
 	return v
+}
+
+// hiddenUnderscores restores "_" in names when the row they are drawn on is hidden
+// (the chat box border covers it): inside [..], a blank run next to a bracket or at
+// least one underscore wide is underscores, one per advance. Plain spaces in names
+// and titles are single 4px gaps and stay spaces.
+func (e *Engine) hiddenUnderscores(l Line) Line {
+	e.gmu.RLock()
+	u := e.byText["_"]
+	e.gmu.RUnlock()
+	if u == nil || l.Visible == 0 || len(u.cols) == 0 || u.cols[0]&l.Visible != 0 {
+		return l
+	}
+	var out []Span
+	depth := 0
+	for i := 0; i < len(l.Spans); {
+		sp := l.Spans[i]
+		if sp.Text != " " || depth == 0 {
+			switch sp.Text {
+			case "[":
+				depth++
+			case "]":
+				depth = max(depth-1, 0)
+			}
+			out = append(out, sp)
+			i++
+			continue
+		}
+		j, width := i, 0
+		for j < len(l.Spans) && l.Spans[j].Text == " " {
+			width += l.Spans[j].W
+			j++
+		}
+		nextToBracket := (len(out) > 0 && out[len(out)-1].Text == "[") || (j < len(l.Spans) && l.Spans[j].Text == "]")
+		n := (width + u.adv/2) / u.adv
+		if n >= 1 && j < len(l.Spans) && (nextToBracket || width >= u.adv) {
+			x := sp.X
+			for k := 0; k < n; k++ {
+				w := u.adv
+				if k == n-1 {
+					w = sp.X + width - x
+				}
+				out = append(out, Span{Text: "_", X: x, W: w})
+				x += w
+			}
+		} else {
+			out = append(out, l.Spans[i:j]...)
+		}
+		i = j
+	}
+	l.Spans = out
+	return l
 }
 
 // visibleRows marks the cell rows at top that are inside the image and not under a

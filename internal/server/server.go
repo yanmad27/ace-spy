@@ -106,10 +106,11 @@ func (s *Server) viewAuth(next http.Handler) http.Handler {
 type ingestRequest struct {
 	Client   string `json:"client"`
 	Messages []struct {
-		Region string   `json:"region"`
-		Text   string   `json:"text"`
-		TS     int64    `json:"ts"`
-		Colors []string `json:"colors"`
+		Region  string   `json:"region"`
+		Text    string   `json:"text"`
+		TS      int64    `json:"ts"`
+		Colors  []string `json:"colors"`
+		Revises string   `json:"revises"`
 	} `json:"messages"`
 }
 
@@ -244,7 +245,8 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		if ts <= 0 || ts > now.Add(futureTolerance).UnixMilli() {
 			ts = nowMs
 		}
-		msgs = append(msgs, Message{Client: client, Region: region, Text: text, CapturedAt: ts, ReceivedAt: nowMs, Colors: cleanColors(m.Colors, text)})
+		revises, _ := clean(m.Revises, maxTextRunes, true)
+		msgs = append(msgs, Message{Client: client, Region: region, Text: text, CapturedAt: ts, ReceivedAt: nowMs, Colors: cleanColors(m.Colors, text), revises: revises})
 	}
 
 	// Pushing chat also proves the client is capturing (clients older than the heartbeat).
@@ -317,17 +319,29 @@ func (s *Server) dropDuplicates(ctx context.Context, msgs []Message, since int64
 			continue
 		}
 		var dup *seenMsg
-		for _, e := range entries {
-			if chatdiff.Similar(e.key, k) {
-				dup = e
-				break
+		revision := false
+		if m.revises != "" {
+			for _, e := range entries {
+				if e.text == m.revises && sameClock(e.text, m.Text) {
+					dup, revision = e, true
+					break
+				}
+			}
+		}
+		if dup == nil {
+			for _, e := range entries {
+				if chatdiff.Similar(e.key, k) {
+					dup = e
+					break
+				}
 			}
 		}
 		switch {
 		case dup == nil:
 			out = append(out, m)
 			entries = append(entries, &seenMsg{key: k, text: m.Text, idx: len(out) - 1})
-		case betterReading(dup.text, m.Text):
+		case dup.text == m.Text:
+		case revision || betterReading(dup.text, m.Text):
 			if dup.id == 0 {
 				m.Replaces = out[dup.idx].Replaces
 				out[dup.idx] = m
@@ -341,6 +355,12 @@ func (s *Server) dropDuplicates(ctx context.Context, msgs []Message, since int64
 		seen[m.Region] = entries
 	}
 	return out, nil
+}
+
+// sameClock reports whether two messages carry the same channel and [hh:mm].
+func sameClock(a, b string) bool {
+	fa, fb := strings.Fields(a), strings.Fields(b)
+	return len(fa) > 0 && len(fb) > 0 && fa[0] == fb[0]
 }
 
 // betterReading reports whether b is a cleaner OCR reading of the same message as a:

@@ -3,6 +3,7 @@ package glyphocr
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // Ace Online draws chat without anti-aliasing in a small palette of bright colours,
@@ -128,15 +129,47 @@ func (e *Engine) trimJunk(bgra []byte, w, h int, lines []Line) []Line {
 		return false
 	}
 	for li := range lines {
-		for si, c := range colors[li] {
+		spans := lines[li].Spans
+		for si := 0; si < len(colors[li]); si++ {
+			c := colors[li][si]
 			if !c.ink || (c.uniform && inPalette(c.rgb)) {
 				continue
 			}
-			lines[li].Spans = lines[li].Spans[:si]
+			if n := wordRun(spans, colors[li], si); n > 0 {
+				si += n - 1 // a rarely used colour on a real word or tag, e.g. "[DR]"
+				continue
+			}
+			lines[li].Spans = spans[:si]
 			break
 		}
 	}
 	return lines
+}
+
+// wordRun returns the length of a run of at least two letters or digits starting at
+// si, all in one uniform bright colour and bounded by brackets or spaces (a whole
+// word or tag, which background art does not produce), or 0.
+func wordRun(spans []Span, colors []glyphColor, si int) int {
+	if si > 0 && !strings.ContainsAny(spans[si-1].Text, " [(") {
+		return 0
+	}
+	first := colors[si]
+	n := 0
+	for i := si; i < len(spans); i++ {
+		c := colors[i]
+		r := []rune(spans[i].Text)
+		if len(r) != 1 || !(unicode.IsLetter(r[0]) || unicode.IsDigit(r[0])) || !c.ink || !c.uniform || !near(c.rgb, first.rgb) {
+			break
+		}
+		n++
+	}
+	if n < 2 || max(first.rgb[0], first.rgb[1], first.rgb[2]) < minTextBrightness {
+		return 0
+	}
+	if end := si + n; end < len(spans) && !strings.ContainsAny(spans[end].Text, " ])") {
+		return 0
+	}
+	return n
 }
 
 // RecognizeColored is Recognize plus the colour of every whitespace-separated token

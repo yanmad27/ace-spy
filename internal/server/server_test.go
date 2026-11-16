@@ -470,3 +470,27 @@ func TestPublicReadsAreCDNCacheable(t *testing.T) {
 		t.Errorf("password-protected Cache-Control = %q", cc)
 	}
 }
+
+func TestRevisionReplacesPartialReading(t *testing.T) {
+	srv := newTestServer(t, Options{Dedupe: 10 * time.Minute})
+	post := func(body string) {
+		if r := do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, body); r.StatusCode != http.StatusOK {
+			t.Fatalf("ingest: %d", r.StatusCode)
+		}
+	}
+	post(`{"client":"pc","messages":[{"region":"BCU","text":"^[12:59] [Ga 89] [BHC] ani qua map bcu an pha le"}]}`)
+	var first []Message
+	getJSON(t, srv.URL+"/api/messages", &first)
+	// Same quality, different name: only an explicit revision may replace it.
+	post(`{"client":"pc","messages":[{"region":"BCU","text":"^[12:59] [Ga_89] [BHC] ani qua map bcu an pha le"}]}`)
+	var msgs []Message
+	getJSON(t, srv.URL+"/api/messages", &msgs)
+	if len(msgs) != 1 || msgs[0].ID != first[0].ID {
+		t.Fatalf("plain duplicate should be dropped: %+v", msgs)
+	}
+	post(`{"client":"pc","messages":[{"region":"BCU","text":"^[12:59] [Ga_89] [BHC] ani qua map bcu an pha le","revises":"^[12:59] [Ga 89] [BHC] ani qua map bcu an pha le"}]}`)
+	getJSON(t, srv.URL+"/api/messages", &msgs)
+	if len(msgs) != 1 || msgs[0].Text != "^[12:59] [Ga_89] [BHC] ani qua map bcu an pha le" || msgs[0].Replaces != first[0].ID {
+		t.Fatalf("revision: %+v", msgs)
+	}
+}

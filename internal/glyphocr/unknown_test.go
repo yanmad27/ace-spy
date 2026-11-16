@@ -21,10 +21,11 @@ func TestUnknownGlyphIsReportedThenLearned(t *testing.T) {
 	pix, w, h := drawFrame(t, e, []string{line}, [][3]byte{{0xea, 0x22, 0x22}}, 260)
 
 	e2, _ := New()
-	texts, _, unknown, err := e2.RecognizeAll(pix, w, h)
+	res, err := e2.RecognizeAll(pix, w, h)
 	if err != nil {
 		t.Fatal(err)
 	}
+	texts, unknown := res.Lines, res.Unknown
 	if len(unknown) != 1 {
 		t.Fatalf("unknown = %+v (texts %q)", unknown, texts)
 	}
@@ -38,7 +39,8 @@ func TestUnknownGlyphIsReportedThenLearned(t *testing.T) {
 	if e2.Learn([]Learned{{Text: "★", Cols: u.Cols}}) != 0 {
 		t.Fatal("learned twice")
 	}
-	texts, _, unknown, _ = e2.RecognizeAll(pix, w, h)
+	res, _ = e2.RecognizeAll(pix, w, h)
+	texts, unknown = res.Lines, res.Unknown
 	if len(texts) != 1 || texts[0] != line || len(unknown) != 0 {
 		t.Fatalf("after learning: %q unknown=%d", texts, len(unknown))
 	}

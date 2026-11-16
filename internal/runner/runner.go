@@ -30,7 +30,7 @@ type Recognizer interface {
 
 // FullRecognizer also reports glyphs the OCR atlas does not know.
 type FullRecognizer interface {
-	RecognizeAll(bgra []byte, width, height int) ([]string, [][]string, []glyphocr.Unknown, error)
+	RecognizeAll(bgra []byte, width, height int) (glyphocr.Result, error)
 }
 
 // ColorRecognizer also reports the colour of each token of each line.
@@ -133,8 +133,11 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 	var lines []string
 	var colors [][]string
 	var unknown []glyphocr.Unknown
+	var partial []bool
 	if fr, ok := r.ocr.(FullRecognizer); ok {
-		lines, colors, unknown, err = fr.RecognizeAll(pix, w, h)
+		var res glyphocr.Result
+		res, err = fr.RecognizeAll(pix, w, h)
+		lines, colors, partial, unknown = res.Lines, res.Colors, res.Partial, res.Unknown
 	} else if cr, ok := r.ocr.(ColorRecognizer); ok {
 		lines, colors, err = cr.RecognizeColored(pix, w, h)
 	} else {
@@ -154,22 +157,28 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 			r.events.OnUnknown(reg, chat)
 		}
 	}
-	colored := names.MessagesColored(lines, colors)
+	colored := names.MessagesFull(lines, colors, partial)
 	msgs := make([]string, len(colored))
+	msgPartial := make([]bool, len(colored))
 	colorOf := make(map[string][]string, len(colored))
 	for i, m := range colored {
 		msgs[i] = m.Text
+		msgPartial[i] = m.Partial
 		colorOf[m.Text] = m.Colors
 	}
-	fresh := tracker.Feed(msgs)
-	r.events.OnLines(reg.ID, msgs, fresh)
+	fresh := tracker.FeedFlagged(msgs, msgPartial)
+	texts := make([]string, len(fresh))
+	for i, f := range fresh {
+		texts[i] = f.Text
+	}
+	r.events.OnLines(reg.ID, msgs, texts)
 	if len(fresh) == 0 {
 		return nil
 	}
 	now := time.Now().UnixMilli()
 	out := make([]pusher.Message, len(fresh))
-	for i, text := range fresh {
-		out[i] = pusher.Message{Region: reg.Label, Text: text, TS: now, Colors: colorOf[text]}
+	for i, f := range fresh {
+		out[i] = pusher.Message{Region: reg.Label, Text: f.Text, TS: now, Colors: colorOf[f.Text], Revises: f.Revises}
 	}
 	r.sink.Enqueue(out...)
 	return nil

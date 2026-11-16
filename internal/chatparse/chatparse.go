@@ -84,6 +84,11 @@ func assemble(lines []string) []*message { return assembleColored(lines, nil) }
 // (colors[i] aligned with strings.Fields of lines[i]; nil = unknown). Each message
 // collects the colours of every line it was built from.
 func assembleColored(lines []string, colors [][]string) []*message {
+	return assembleFull(lines, colors, nil)
+}
+
+// assembleFull is assembleColored with per-line partial flags (see Msg.Partial).
+func assembleFull(lines []string, colors [][]string, partial []bool) []*message {
 	var out []*message
 	var cur *message
 	flush := func() {
@@ -95,9 +100,13 @@ func assembleColored(lines []string, colors [][]string) []*message {
 	}
 	var split []string
 	var splitColors [][]string
+	var splitPartial []bool
 	for i, raw := range lines {
 		parts := splitMerged(clean(raw))
 		split = append(split, parts...)
+		for range parts {
+			splitPartial = append(splitPartial, i < len(partial) && partial[i])
+		}
 		var lc []string
 		if i < len(colors) {
 			lc = colors[i]
@@ -116,6 +125,7 @@ func assembleColored(lines []string, colors [][]string) []*message {
 			cur.body = strings.TrimSpace(cur.body + " " + line)
 			cur.colors = append(append([]string(nil), cur.colors...), splitColors[i]...)
 			cur.src = append(append([]string(nil), cur.src...), strings.Fields(line)...)
+			cur.partial = cur.partial || splitPartial[i]
 			continue
 		}
 		if cur != nil && cur.notice {
@@ -125,6 +135,7 @@ func assembleColored(lines []string, colors [][]string) []*message {
 			flush()
 			cur = m
 			cur.colors = splitColors[i]
+			cur.partial = splitPartial[i]
 			if cur.colors != nil {
 				cur.src = strings.Fields(line)
 			}
@@ -133,6 +144,7 @@ func assembleColored(lines []string, colors [][]string) []*message {
 		if cur != nil {
 			if isMeaningfulLine(line) {
 				cur.body = strings.TrimSpace(cur.body + " " + line)
+				cur.partial = cur.partial || splitPartial[i]
 				if cur.colors != nil && splitColors[i] != nil {
 					cur.colors = append(append([]string(nil), cur.colors...), splitColors[i]...)
 					cur.src = append(append([]string(nil), cur.src...), strings.Fields(line)...)
@@ -158,6 +170,7 @@ type message struct {
 	colors  []string // token colours of the source line(s), in order
 	src     []string // the source tokens those colours belong to
 	notice  bool     // a yellow system announcement: no header, body only
+	partial bool     // read from a line with hidden glyph rows
 }
 
 // NoticePrefix marks a pushed game announcement ("§ text"), which has no channel or time.
@@ -225,6 +238,9 @@ func partColors(line string, parts []string, lc []string) [][]string {
 type Msg struct {
 	Text   string
 	Colors []string
+	// Partial: some glyph rows were hidden when this was read (bottom line under the
+	// chat box border), so a later, complete reading should replace it.
+	Partial bool
 }
 
 var timeTokenRe = regexp.MustCompile(`\d\s*[:;.]\s*\d`)
@@ -234,6 +250,12 @@ var timeTokenRe = regexp.MustCompile(`\d\s*[:;.]\s*\d`)
 // the colours of the source tokens after the timestamp; a name cut out of a token
 // glued to the body (e.g. "[BC] [Item][Item]") takes the body's first colour.
 func (m *message) colored() Msg {
+	out := m.coloredText()
+	out.Partial = m.partial
+	return out
+}
+
+func (m *message) coloredText() Msg {
 	text := m.String()
 	if len(m.colors) == 0 || len(m.colors) != len(m.src) {
 		return Msg{Text: text}
@@ -298,6 +320,10 @@ func fixConfusions(s string) string {
 	toks := strings.Fields(s)
 	changed := false
 	for i, tok := range toks {
+		if q, ok := fixGu(tok); ok {
+			toks[i], changed = q, true
+			continue
+		}
 		end := strings.LastIndexFunc(tok, unicode.IsLetter)
 		if end < 0 || (tok[end] != 'v' && tok[end] != 'V') {
 			continue
@@ -329,6 +355,36 @@ func fixConfusions(s string) string {
 		return s
 	}
 	return strings.Join(toks, " ")
+}
+
+// fixGu repairs "gua"/"guá" read for "qua"/"quá": with the bottom row hidden, q and
+// g are pixel-identical. Only words that are not Vietnamese with g but are with q.
+func fixGu(tok string) (string, bool) {
+	start := strings.IndexFunc(tok, unicode.IsLetter)
+	if start < 0 || !strings.HasPrefix(strings.ToLower(tok[start:]), "gu") {
+		return "", false
+	}
+	end := start
+	for end < len(tok) {
+		r, n := utf8.DecodeRuneInString(tok[end:])
+		if !unicode.IsLetter(r) {
+			break
+		}
+		end += n
+	}
+	word := tok[start:end]
+	if len([]rune(word)) < 3 || IsSyllable(word) || chatWords[strings.ToLower(word)] {
+		return "", false
+	}
+	q := "q"
+	if word[0] == 'G' {
+		q = "Q"
+	}
+	cand := q + word[1:]
+	if !IsSyllable(cand) {
+		return "", false
+	}
+	return tok[:start] + cand + tok[end:], true
 }
 
 // baseRune strips tone marks but keeps the letter's own shape (ầ -> â, ú -> u).

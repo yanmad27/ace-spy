@@ -22,6 +22,8 @@ type Message struct {
 	Colors     []string `json:"colors,omitempty"`
 	// Replaces is the id of an earlier, worse OCR reading of this message, now hidden.
 	Replaces int64 `json:"replaces,omitempty"`
+	// revises is the client's earlier reading this one supersedes (ingest only).
+	revises string
 }
 
 type RegionStat struct {

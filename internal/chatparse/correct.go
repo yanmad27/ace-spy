@@ -122,7 +122,13 @@ func (b *NameBook) Messages(lines []string) []string {
 
 // MessagesColored is Messages with token colours (see Msg).
 func (b *NameBook) MessagesColored(lines []string, colors [][]string) []Msg {
-	msgs := assembleColored(lines, colors)
+	return b.MessagesFull(lines, colors, nil)
+}
+
+// MessagesFull is MessagesColored with per-line partial flags. Names read from
+// partial lines are snapped to known names but not learned.
+func (b *NameBook) MessagesFull(lines []string, colors [][]string, partial []bool) []Msg {
+	msgs := assembleFull(lines, colors, partial)
 	var chat []*message
 	for _, m := range msgs {
 		if !m.notice {
@@ -132,6 +138,9 @@ func (b *NameBook) MessagesColored(lines []string, colors [][]string) []Msg {
 	fixTimestamps(chat)
 	b.mu.Lock()
 	for _, m := range msgs {
+		if m.partial {
+			continue
+		}
 		for _, n := range m.names {
 			b.observe(n)
 		}

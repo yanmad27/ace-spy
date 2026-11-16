@@ -60,3 +60,21 @@ func TestFeedReturnsBetterReReading(t *testing.T) {
 		t.Fatalf("worse re-reading returned: %q", got)
 	}
 }
+
+func TestPartialLineIsRevisedByCompleteReading(t *testing.T) {
+	var tr Tracker
+	got := tr.FeedFlagged([]string{"^[1] [A] hi", "^[2] [Ga 89] [BC] ani qua"}, []bool{false, true})
+	if len(got) != 2 || got[1].Revises != "" {
+		t.Fatalf("first = %+v", got)
+	}
+	got = tr.FeedFlagged([]string{"^[1] [A] hi", "^[2] [Ga_89] [BC] ani qua", "^[3] [B] yo"}, []bool{false, false, true})
+	if len(got) != 2 || got[0] != (Fresh{Text: "^[2] [Ga_89] [BC] ani qua", Revises: "^[2] [Ga 89] [BC] ani qua"}) || got[1].Text != "^[3] [B] yo" {
+		t.Fatalf("second = %+v", got)
+	}
+	// A complete line is not revised by a partial reading; an identical complete
+	// reading of a partial line clears its flag without re-publishing it.
+	got = tr.FeedFlagged([]string{"^[2] [Ga 89] [BC] ani qua", "^[3] [B] yo"}, []bool{true, false})
+	if len(got) != 0 || tr.partial["^[3] [B] yo"] {
+		t.Fatalf("third = %+v partial=%v", got, tr.partial)
+	}
+}
