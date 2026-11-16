@@ -437,6 +437,28 @@ function syncURL() {
 // heartbeat recently; idle = reachable but nothing is capturing.
 const live = { connected: null, clients: null, regions: [] };
 
+const STATE_COLORS = { online: "#50ff8c", idle: "#ffbe3c", offline: "#ff5a50", "": "#3ec8ff" };
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+// Sweeps the new state colour along the logo line; the line keeps its old colour
+// until the sweep reaches the end.
+function wipeLine(color, first) {
+  if (first || reduceMotion.matches) {
+    brandEl.style.setProperty("--line", color);
+    return;
+  }
+  brandEl.style.setProperty("--to", color);
+  brandEl.classList.remove("wiping");
+  void brandEl.offsetWidth; // restart the animation
+  brandEl.classList.add("wiping");
+}
+
+brandEl.addEventListener("animationend", (ev) => {
+  if (ev.animationName !== "state-wipe") return;
+  brandEl.style.setProperty("--line", brandEl.style.getPropertyValue("--to"));
+  brandEl.classList.remove("wiping");
+});
+
 function renderStatus() {
   let text = "đang kết nối…", cls = "", title = "";
   if (live.connected === false) {
@@ -454,7 +476,9 @@ function renderStatus() {
   statusEl.textContent = text;
   statusEl.dataset.short = { online: "LIVE", idle: "IDLE", offline: "OFFLINE" }[cls] || "…";
   statusEl.className = `status ${cls}`.trim();
-  brandEl.className = `brand ${cls}`.trim();
+  if (brandEl.dataset.state !== cls) wipeLine(STATE_COLORS[cls] || STATE_COLORS[""], brandEl.dataset.state === undefined);
+  brandEl.dataset.state = cls;
+  brandEl.className = `brand ${cls}${brandEl.classList.contains("wiping") ? " wiping" : ""}`;
   brandEl.title = title ? `${text.toUpperCase()} · ${title}` : text;
 }
 

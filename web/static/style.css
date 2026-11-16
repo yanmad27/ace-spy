@@ -408,6 +408,26 @@ body > header h1.logo::after {
   text-shadow: none;
 }
 .brand .status::before { display: none; }
+.brand .status::after { content: none !important; }
+/* State change: the new colour sweeps along the line behind a white tip. */
+body > header .brand h1.logo::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  bottom: 0;
+  z-index: 1;
+  width: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--to) 15%, var(--to) calc(100% - 16px), #ffffff);
+  box-shadow: 0 0 6px var(--to);
+  opacity: 0;
+}
+body > header .brand.wiping h1.logo::before { opacity: 1; animation: state-wipe 0.9s ease-in-out forwards; }
+@keyframes state-wipe {
+  from { width: 0; }
+  to { width: calc(100% - 8px); }
+}
 .brand .status::after {
   content: attr(data-short);
   font: 700 8px/11px Verdana, Tahoma, sans-serif;
@@ -419,9 +439,9 @@ body > header .brand h1.logo::after {
   height: 2px;
   background:
     linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.95) 50%, transparent 100%) no-repeat,
-    linear-gradient(90deg, transparent, color-mix(in srgb, var(--sc) 85%, transparent) 15%, color-mix(in srgb, var(--sc) 85%, transparent) 85%, transparent);
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--line, var(--sc)) 85%, transparent) 15%, color-mix(in srgb, var(--line, var(--sc)) 85%, transparent) 85%, transparent);
   background-size: 28% 100%, 100% 100%;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--sc) 90%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--line, var(--sc)) 90%, transparent);
   animation: heartbeat-run 1.6s linear infinite;
   transition: box-shadow 0.3s;
 }
