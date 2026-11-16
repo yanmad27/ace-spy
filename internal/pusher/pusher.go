@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -59,14 +60,15 @@ type payload struct {
 }
 
 type Pusher struct {
-	endpoint   string
-	samplesURL string
-	beatURL    string
-	glyphsURL  string
-	token      string
-	client     string
-	http       *http.Client
-	onStatus   func(string)
+	endpoint    string
+	samplesURL  string
+	beatURL     string
+	glyphsURL   string
+	capturesURL string
+	token       string
+	client      string
+	http        *http.Client
+	onStatus    func(string)
 
 	mu      sync.Mutex
 	queue   []Message
@@ -82,17 +84,18 @@ func New(serverURL, token, clientName string, onStatus func(string)) *Pusher {
 	}
 	base := strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	return &Pusher{
-		endpoint:   base + "/api/ingest",
-		samplesURL: base + "/api/samples",
-		beatURL:    base + "/api/heartbeat",
-		glyphsURL:  base + "/api/glyphs",
-		token:      strings.TrimSpace(token),
-		client:     clientName,
-		http:       &http.Client{Timeout: requestLimit},
-		onStatus:   onStatus,
-		notify:     make(chan struct{}, 1),
-		alive:      map[string]time.Time{},
-		unknown:    map[string]*unknownSeen{},
+		endpoint:    base + "/api/ingest",
+		samplesURL:  base + "/api/samples",
+		beatURL:     base + "/api/heartbeat",
+		glyphsURL:   base + "/api/glyphs",
+		capturesURL: base + "/api/captures",
+		token:       strings.TrimSpace(token),
+		client:      clientName,
+		http:        &http.Client{Timeout: requestLimit},
+		onStatus:    onStatus,
+		notify:      make(chan struct{}, 1),
+		alive:       map[string]time.Time{},
+		unknown:     map[string]*unknownSeen{},
 	}
 }
 
@@ -141,6 +144,29 @@ func (p *Pusher) reportGlyphs(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// UploadCapture sends a gzipped packet capture of the game's traffic for analysis.
+func (p *Pusher) UploadCapture(ctx context.Context, note string, gz []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	u := p.capturesURL + "?client=" + url.QueryEscape(p.client) + "&note=" + url.QueryEscape(note)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(gz))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/gzip")
+	req.Header.Set("Authorization", "Bearer "+p.token)
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return nil
 }
 
 // LearnedGlyphs fetches the glyphs labelled on the server.

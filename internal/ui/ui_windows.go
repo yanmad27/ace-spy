@@ -112,6 +112,7 @@ func (a *app) run() error {
 					PushButton{AssignTo: &editBtn, Text: "Edit…", OnClicked: a.editSelected},
 					PushButton{AssignTo: &delBtn, Text: "Remove", OnClicked: a.removeSelected},
 					PushButton{AssignTo: &testBtn, Text: "Test OCR", OnClicked: a.testSelected},
+					PushButton{Text: "Ghi gói tin…", ToolTipText: "Ghi 60 giây lưu lượng mạng của game để phân tích (cần quyền Administrator)", OnClicked: a.capturePackets},
 					HSpacer{},
 					PushButton{AssignTo: &a.startBtn, Text: "Start", MinSize: Size{Width: 110}, OnClicked: a.toggle},
 				},

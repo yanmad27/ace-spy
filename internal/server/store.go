@@ -91,6 +91,14 @@ CREATE TABLE IF NOT EXISTS glyphs (
 	last_seen  BIGINT NOT NULL
 );
 ALTER TABLE glyphs ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS captures (
+	id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	client     TEXT   NOT NULL,
+	note       TEXT   NOT NULL,
+	created_at BIGINT NOT NULL,
+	data       BYTEA  NOT NULL
+);
+ALTER TABLE captures ENABLE ROW LEVEL SECURITY;
 `
 
 func OpenStore(ctx context.Context, databaseURL string) (*Store, error) {
@@ -418,4 +426,46 @@ func (s *Store) LatestID(ctx context.Context) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `SELECT COALESCE(max(id), 0) FROM messages`).Scan(&id)
 	return id, err
+}
+
+// Capture is a gzipped packet capture of the game's traffic uploaded for analysis.
+type Capture struct {
+	ID        int64  `json:"id"`
+	Client    string `json:"client"`
+	Note      string `json:"note"`
+	CreatedAt int64  `json:"createdAt"`
+	Size      int    `json:"size"`
+}
+
+const capturesKept = 5
+
+func (s *Store) AddCapture(ctx context.Context, c Capture, data []byte) (int64, error) {
+	var id int64
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `INSERT INTO captures (client, note, created_at, data) VALUES ($1, $2, $3, $4) RETURNING id`,
+			c.Client, c.Note, c.CreatedAt, data).Scan(&id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM captures WHERE id NOT IN (SELECT id FROM captures ORDER BY id DESC LIMIT $1)`, capturesKept)
+		return err
+	})
+	return id, err
+}
+
+func (s *Store) Captures(ctx context.Context) ([]Capture, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, client, note, created_at, length(data) FROM captures ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Capture])
+	if out == nil {
+		out = []Capture{}
+	}
+	return out, err
+}
+
+func (s *Store) CaptureData(ctx context.Context, id int64) ([]byte, error) {
+	var data []byte
+	err := s.pool.QueryRow(ctx, `SELECT data FROM captures WHERE id = $1`, id).Scan(&data)
+	return data, err
 }

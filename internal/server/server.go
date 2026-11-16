@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/yanmad27/ace-spy/internal/chatdiff"
@@ -60,6 +62,9 @@ func New(store *Store, static fs.FS, opts Options) http.Handler {
 	mux.Handle("GET /api/stream", s.viewAuth(http.HandlerFunc(s.stream)))
 	mux.HandleFunc("POST /api/heartbeat", s.ingestAuth(s.heartbeat))
 	mux.HandleFunc("POST /api/glyphs/unknown", s.ingestAuth(s.addGlyphs))
+	mux.HandleFunc("POST /api/captures", s.ingestAuth(s.addCapture))
+	mux.HandleFunc("GET /api/captures", s.ingestAuth(s.listCaptures))
+	mux.HandleFunc("GET /api/captures/{id}", s.ingestAuth(s.captureData))
 	mux.Handle("GET /api/glyphs", s.viewAuth(http.HandlerFunc(s.listGlyphs)))
 	mux.HandleFunc("POST /api/glyphs/{hash}/label", s.ingestAuth(s.labelGlyph))
 	mux.HandleFunc("GET /api/cron/prune", s.cronPrune)
@@ -633,6 +638,62 @@ func (s *Server) labelGlyph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Gzipped captures; Vercel caps request bodies at 4.5 MB.
+const maxCaptureBytes = 4 << 20
+
+func (s *Server) addCapture(w http.ResponseWriter, r *http.Request) {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCaptureBytes))
+	if err != nil {
+		http.Error(w, "capture too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+		http.Error(w, "capture must be gzip", http.StatusBadRequest)
+		return
+	}
+	q := r.URL.Query()
+	client, _ := clean(q.Get("client"), maxClientRunes, true)
+	note, _ := clean(q.Get("note"), 500, true)
+	id, err := s.store.AddCapture(r.Context(), Capture{Client: client, Note: note, CreatedAt: time.Now().UnixMilli()}, data)
+	if err != nil {
+		log.Printf("capture: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"id": id})
+}
+
+func (s *Server) listCaptures(w http.ResponseWriter, r *http.Request) {
+	cs, err := s.store.Captures(r.Context())
+	if err != nil {
+		log.Printf("captures: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, cs)
+}
+
+func (s *Server) captureData(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	data, err := s.store.CaptureData(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("capture data: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(data)
 }
 
 func parseID(s string) (int64, bool) {

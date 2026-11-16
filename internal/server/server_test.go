@@ -2,8 +2,11 @@ package server
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -28,7 +31,7 @@ func newTestServer(t *testing.T, opts Options) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(store.Close)
-	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers, capturers, glyphs RESTART IDENTITY`); err != nil {
+	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers, capturers, glyphs, captures RESTART IDENTITY`); err != nil {
 		t.Fatal(err)
 	}
 	opts.IngestToken = token
@@ -492,5 +495,48 @@ func TestRevisionReplacesPartialReading(t *testing.T) {
 	getJSON(t, srv.URL+"/api/messages", &msgs)
 	if len(msgs) != 1 || msgs[0].Text != "^[12:59] [Ga_89] [BHC] ani qua map bcu an pha le" || msgs[0].Replaces != first[0].ID {
 		t.Fatalf("revision: %+v", msgs)
+	}
+}
+
+func TestCaptureUploadRequiresTokenAndRoundTrips(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	zw.Write([]byte("pcapng bytes"))
+	zw.Close()
+	post := func(auth string, body []byte) int {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/captures?client=pc&note=pids%3D1", bytes.NewReader(body))
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if c := post("", buf.Bytes()); c != http.StatusUnauthorized {
+		t.Fatalf("no token = %d", c)
+	}
+	if c := post("Bearer "+token, []byte("plain")); c != http.StatusBadRequest {
+		t.Fatalf("not gzip = %d", c)
+	}
+	if c := post("Bearer "+token, buf.Bytes()); c != http.StatusOK {
+		t.Fatalf("upload = %d", c)
+	}
+	if r := do(t, "GET", srv.URL+"/api/captures", "", ""); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("list without token = %d", r.StatusCode)
+	}
+	req, _ := http.NewRequest("GET", srv.URL+"/api/captures/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, _ := io.ReadAll(resp.Body)
+	if !bytes.Equal(got, buf.Bytes()) {
+		t.Fatalf("download mismatch: %d bytes", len(got))
 	}
 }
