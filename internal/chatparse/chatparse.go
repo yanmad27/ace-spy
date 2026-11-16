@@ -513,3 +513,34 @@ func Key(s string) string {
 	}
 	return b.String()
 }
+
+// Split returns the header ("^[hh:mm] [Name] [Map]") and body of a chat message.
+func Split(s string) (header, body string, ok bool) {
+	m, ok := parseHeader(clean(s))
+	if !ok {
+		return "", "", false
+	}
+	body = m.body
+	m.body = ""
+	return m.String(), body, true
+}
+
+// Quality scores how well a message reads as Vietnamese chat: real syllables, chat
+// words and numbers count for it, junk characters and non-words against it. Two OCR
+// readings of the same message keep the higher-scoring one.
+func Quality(s string) int {
+	text := s
+	if _, body, ok := Split(s); ok {
+		text = body
+	} else if b, ok := strings.CutPrefix(s, NoticePrefix); ok {
+		text = b
+	}
+	st := score(text)
+	q := 2*st.valid - 3*st.junk - (st.words - st.valid)
+	for _, tok := range strings.Fields(text) {
+		if isNumeric(strings.TrimFunc(tok, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })) {
+			q++
+		}
+	}
+	return q
+}

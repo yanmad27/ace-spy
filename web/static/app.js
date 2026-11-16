@@ -256,10 +256,19 @@ class Pane {
   insert(msgs) {
     let added = 0;
     for (const m of msgs) {
+      if (m.replaces) {
+        const old = this.feed.querySelector(`li[data-id="${m.replaces}"]`);
+        if (old) {
+          this.seen.delete(old.dataset.dup);
+          old.remove();
+          added--;
+        }
+      }
       const dup = `${m.region}|${foldText(m.text)}`;
       if (this.seen.has(dup)) continue;
       this.seen.add(dup);
       const li = row(m, !this.region);
+      li.dataset.dup = dup;
       const k = orderKey(m);
       li.dataset.k = k;
       const kids = this.feed.children;
@@ -280,7 +289,7 @@ class Pane {
       this.feed.firstElementChild.remove();
       this.olderBtn.hidden = false;
     }
-    return added;
+    return Math.max(added, 0);
   }
 
   append(msgs) {

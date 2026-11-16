@@ -20,6 +20,8 @@ type Message struct {
 	CapturedAt int64    `json:"ts"`
 	ReceivedAt int64    `json:"receivedAt"`
 	Colors     []string `json:"colors,omitempty"`
+	// Replaces is the id of an earlier, worse OCR reading of this message, now hidden.
+	Replaces int64 `json:"replaces,omitempty"`
 }
 
 type RegionStat struct {
@@ -49,6 +51,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
 -- No policies: blocks Supabase/PostgREST anon access; the owning role used by this server is exempt.
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS colors TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS replaces BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS samples (
 	id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	client     TEXT   NOT NULL,
@@ -116,24 +120,46 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 func (s *Store) Close() { s.pool.Close() }
 
 const insertSQL = `
-INSERT INTO messages (client, region, text, captured_at, received_at, colors)
-SELECT t.client, t.region, t.text, t.captured_at, t.received_at, t.colors
-FROM unnest($1::text[], $2::text[], $3::text[], $4::bigint[], $5::bigint[], $6::text[])
-	WITH ORDINALITY AS t(client, region, text, captured_at, received_at, colors, ord)
+INSERT INTO messages (client, region, text, captured_at, received_at, colors, replaces)
+SELECT t.client, t.region, t.text, t.captured_at, t.received_at, t.colors, t.replaces
+FROM unnest($1::text[], $2::text[], $3::text[], $4::bigint[], $5::bigint[], $6::text[], $7::bigint[])
+	WITH ORDINALITY AS t(client, region, text, captured_at, received_at, colors, replaces, ord)
 ORDER BY t.ord
-RETURNING id, client, region, text, captured_at, received_at, colors`
+RETURNING ` + msgCols
 
-// Insert stores messages in one round trip. Returned rows are ordered by id.
+const msgCols = `id, client, region, text, captured_at, received_at, colors, replaces`
+
+// Insert stores messages and hides the rows they replace, in one transaction.
+// Returned rows are ordered by id.
 func (s *Store) Insert(ctx context.Context, msgs []Message) ([]Message, error) {
 	n := len(msgs)
 	clients, regions, texts := make([]string, n), make([]string, n), make([]string, n)
 	captured, received := make([]int64, n), make([]int64, n)
 	colors := make([]string, n)
+	replaces := make([]int64, n)
+	var hide []int64
 	for i, m := range msgs {
 		clients[i], regions[i], texts[i], captured[i], received[i] = m.Client, m.Region, m.Text, m.CapturedAt, m.ReceivedAt
 		colors[i] = strings.Join(m.Colors, " ")
+		replaces[i] = m.Replaces
+		if m.Replaces > 0 {
+			hide = append(hide, m.Replaces)
+		}
 	}
-	out, err := s.query(ctx, insertSQL, clients, regions, texts, captured, received, colors)
+	var out []Message
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, insertSQL, clients, regions, texts, captured, received, colors, replaces)
+		if err != nil {
+			return err
+		}
+		if out, err = collectMessages(rows); err != nil {
+			return err
+		}
+		if len(hide) > 0 {
+			_, err = tx.Exec(ctx, `UPDATE messages SET hidden = true WHERE id = ANY($1)`, hide)
+		}
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -141,15 +167,20 @@ func (s *Store) Insert(ctx context.Context, msgs []Message) ([]Message, error) {
 	return out, nil
 }
 
-// RecentTexts returns up to limit texts in region received at or after since, newest first.
-func (s *Store) RecentTexts(ctx context.Context, region string, since int64, limit int) ([]string, error) {
+// Recent returns up to limit visible messages (id and text only) in region received at
+// or after since, newest first.
+func (s *Store) Recent(ctx context.Context, region string, since int64, limit int) ([]Message, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT text FROM messages WHERE region = $1 AND received_at >= $2
+		SELECT id, text FROM messages WHERE region = $1 AND received_at >= $2 AND NOT hidden
 		ORDER BY id DESC LIMIT $3`, region, since, limit)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[string])
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Message, error) {
+		var m Message
+		err := r.Scan(&m.ID, &m.Text)
+		return m, err
+	})
 }
 
 // Before returns up to limit messages with id < beforeID (0 = latest), oldest first.
@@ -158,8 +189,8 @@ func (s *Store) Before(ctx context.Context, region string, beforeID int64, limit
 		beforeID = 1<<63 - 1
 	}
 	msgs, err := s.query(ctx, `
-		SELECT id, client, region, text, captured_at, received_at, colors FROM messages
-		WHERE id < $1 AND ($2 = '' OR region = $2)
+		SELECT `+msgCols+` FROM messages
+		WHERE id < $1 AND ($2 = '' OR region = $2) AND NOT hidden
 		ORDER BY id DESC LIMIT $3`, beforeID, region, limit)
 	if err != nil {
 		return nil, err
@@ -173,8 +204,8 @@ func (s *Store) Before(ctx context.Context, region string, beforeID int64, limit
 // After returns up to limit messages with id > afterID, oldest first.
 func (s *Store) After(ctx context.Context, region string, afterID int64, limit int) ([]Message, error) {
 	return s.query(ctx, `
-		SELECT id, client, region, text, captured_at, received_at, colors FROM messages
-		WHERE id > $1 AND ($2 = '' OR region = $2)
+		SELECT `+msgCols+` FROM messages
+		WHERE id > $1 AND ($2 = '' OR region = $2) AND NOT hidden
 		ORDER BY id ASC LIMIT $3`, afterID, region, limit)
 }
 
@@ -183,10 +214,14 @@ func (s *Store) query(ctx context.Context, sql string, args ...any) ([]Message, 
 	if err != nil {
 		return nil, err
 	}
+	return collectMessages(rows)
+}
+
+func collectMessages(rows pgx.Rows) ([]Message, error) {
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Message, error) {
 		var m Message
 		var colors string
-		err := r.Scan(&m.ID, &m.Client, &m.Region, &m.Text, &m.CapturedAt, &m.ReceivedAt, &colors)
+		err := r.Scan(&m.ID, &m.Client, &m.Region, &m.Text, &m.CapturedAt, &m.ReceivedAt, &colors, &m.Replaces)
 		m.Colors = strings.Fields(colors)
 		return m, err
 	})
@@ -197,7 +232,7 @@ func (s *Store) query(ctx context.Context, sql string, args ...any) ([]Message, 
 }
 
 func (s *Store) Regions(ctx context.Context) ([]RegionStat, error) {
-	rows, err := s.pool.Query(ctx, `SELECT region, COUNT(*), MAX(captured_at) FROM messages GROUP BY region ORDER BY region`)
+	rows, err := s.pool.Query(ctx, `SELECT region, COUNT(*), MAX(captured_at) FROM messages WHERE NOT hidden GROUP BY region ORDER BY region`)
 	if err != nil {
 		return nil, err
 	}

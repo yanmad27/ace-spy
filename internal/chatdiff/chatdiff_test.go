@@ -46,3 +46,17 @@ func TestNormalizeComposesDiacritics(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestFeedReturnsBetterReReading(t *testing.T) {
+	tr := Tracker{Better: func(a, b string) bool { return len(b) > len(a) }}
+	if got := tr.Feed([]string{"one line", "tam nav chi co"}); len(got) != 2 {
+		t.Fatalf("first feed = %q", got)
+	}
+	got := tr.Feed([]string{"one line", "tam nay chi coo", "new one"})
+	if len(got) != 2 || got[0] != "tam nay chi coo" || got[1] != "new one" {
+		t.Fatalf("second feed = %q", got)
+	}
+	if got := tr.Feed([]string{"one line", "tam nav chi co", "new one"}); len(got) != 0 {
+		t.Fatalf("worse re-reading returned: %q", got)
+	}
+}

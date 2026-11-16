@@ -90,7 +90,7 @@ func (r *Runner) loop(ctx context.Context, reg config.Region) {
 	}
 	defer g.Close()
 
-	var tracker chatdiff.Tracker
+	tracker := chatdiff.Tracker{Better: func(a, b string) bool { return chatparse.Quality(b) > chatparse.Quality(a) }}
 	names := chatparse.NewNameBook()
 	var lastHash uint64
 	var lastSample time.Time

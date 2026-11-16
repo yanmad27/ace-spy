@@ -17,6 +17,10 @@ const (
 
 type Tracker struct {
 	history []string
+	// Better reports whether reading b of a line is better than reading a. When set,
+	// a line already seen that is re-read better (e.g. once it scrolls clear of
+	// something covering it) is returned again with the better reading.
+	Better func(a, b string) bool
 }
 
 func Normalize(s string) string {
@@ -25,7 +29,8 @@ func Normalize(s string) string {
 }
 
 // Feed takes the lines currently visible (top to bottom, newest last) and returns
-// the lines that were not present in previously seen frames.
+// the lines that were not present in previously seen frames, preceded by better
+// re-readings of lines already returned (see Better).
 func (t *Tracker) Feed(lines []string) []string {
 	cur := make([]string, 0, len(lines))
 	for _, l := range lines {
@@ -38,6 +43,16 @@ func (t *Tracker) Feed(lines []string) []string {
 	}
 
 	k := overlap(t.history, cur)
+	var revised []string
+	if t.Better != nil {
+		off := len(t.history) - k
+		for i := 0; i < k; i++ {
+			if old := t.history[off+i]; old != cur[i] && t.Better(old, cur[i]) {
+				t.history[off+i] = cur[i]
+				revised = append(revised, cur[i])
+			}
+		}
+	}
 	fresh := cur[k:]
 	if k == 0 && len(t.history) > 0 {
 		// No alignment: either everything scrolled past since the last frame, or the
@@ -56,7 +71,7 @@ func (t *Tracker) Feed(lines []string) []string {
 	if len(t.history) > historyCap {
 		t.history = append([]string(nil), t.history[len(t.history)-historyCap:]...)
 	}
-	return fresh
+	return append(revised, fresh...)
 }
 
 // overlap returns the largest k such that the last k history lines match the first k current lines.

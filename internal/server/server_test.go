@@ -289,3 +289,32 @@ func TestHeartbeatMakesLive(t *testing.T) {
 		t.Fatalf("after ingest: %d %v", c, r)
 	}
 }
+
+func TestBetterReadingReplacesWorse(t *testing.T) {
+	srv := newTestServer(t, Options{Dedupe: 10 * time.Minute})
+	ingest := func(text string) {
+		body := `{"client":"pc","messages":[{"region":"BCU","text":"` + text + `"}]}`
+		if r := do(t, "POST", srv.URL+"/api/ingest", "Bearer "+token, body); r.StatusCode != http.StatusOK {
+			t.Fatalf("ingest %q: %d", text, r.StatusCode)
+		}
+	}
+	ingest("^[10:25] [ChymD] [BC] tầm nàv chỉ có DGA mới níu dc")
+	var first []Message
+	getJSON(t, srv.URL+"/api/messages", &first)
+	ingest("^[10:25] [ChymD] [BC] tầm này chỉ có DGA mới níu dc")
+	ingest("^[10:25] [ChymD] [BC] tầm nàv chỉ có DGA mới níu dc") // worse again: dropped
+
+	var msgs []Message
+	getJSON(t, srv.URL+"/api/messages", &msgs)
+	if len(first) != 1 || len(msgs) != 1 {
+		t.Fatalf("first=%+v now=%+v", first, msgs)
+	}
+	if m := msgs[0]; !strings.Contains(m.Text, "này") || m.Replaces != first[0].ID {
+		t.Fatalf("got %+v, want reading with này replacing %d", m, first[0].ID)
+	}
+	var after []Message
+	getJSON(t, srv.URL+"/api/messages?after="+itoa(first[0].ID), &after)
+	if len(after) != 1 || after[0].Replaces != first[0].ID {
+		t.Fatalf("poll after first = %+v", after)
+	}
+}

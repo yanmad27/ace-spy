@@ -281,38 +281,77 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 const dedupeLookback = 500
 
 // dropDuplicates removes messages whose folded text (no diacritics, letters and digits
-// only) is within OCR noise of a recent message in the same region or earlier in the batch.
+// only) is within OCR noise of a recent message in the same region or earlier in the
+// batch. A duplicate that reads better than the message it duplicates replaces it.
 func (s *Server) dropDuplicates(ctx context.Context, msgs []Message, since int64) ([]Message, error) {
-	seen := map[string][]string{}
+	type seenMsg struct {
+		key, text string
+		id        int64 // stored row, 0 when it is out[idx] of this batch
+		idx       int
+	}
+	seen := map[string][]*seenMsg{}
 	out := msgs[:0:0]
 	for _, m := range msgs {
-		keys, ok := seen[m.Region]
+		entries, ok := seen[m.Region]
 		if !ok {
-			texts, err := s.store.RecentTexts(ctx, m.Region, since, dedupeLookback)
+			recent, err := s.store.Recent(ctx, m.Region, since, dedupeLookback)
 			if err != nil {
 				return nil, err
 			}
-			for _, t := range texts {
-				keys = append(keys, chatparse.Key(t))
+			for _, r := range recent {
+				entries = append(entries, &seenMsg{key: chatparse.Key(r.Text), text: r.Text, id: r.ID})
 			}
 		}
 		k := chatparse.Key(m.Text)
-		if k != "" && !containsSimilarKey(keys, k) {
-			out = append(out, m)
-			keys = append(keys, k)
+		if k == "" {
+			continue
 		}
-		seen[m.Region] = keys
+		var dup *seenMsg
+		for _, e := range entries {
+			if chatdiff.Similar(e.key, k) {
+				dup = e
+				break
+			}
+		}
+		switch {
+		case dup == nil:
+			out = append(out, m)
+			entries = append(entries, &seenMsg{key: k, text: m.Text, idx: len(out) - 1})
+		case betterReading(dup.text, m.Text):
+			if dup.id == 0 {
+				m.Replaces = out[dup.idx].Replaces
+				out[dup.idx] = m
+			} else {
+				m.Replaces = dup.id
+				out = append(out, m)
+				dup.id, dup.idx = 0, len(out)-1
+			}
+			dup.key, dup.text = k, m.Text
+		}
+		seen[m.Region] = entries
 	}
 	return out, nil
 }
 
-func containsSimilarKey(keys []string, k string) bool {
-	for _, e := range keys {
-		if chatdiff.Similar(e, k) {
-			return true
+// betterReading reports whether b is a cleaner OCR reading of the same message as a:
+// same channel and time, near-identical header, and a higher chatparse.Quality.
+func betterReading(a, b string) bool {
+	ha, _, okA := chatparse.Split(a)
+	hb, _, okB := chatparse.Split(b)
+	switch {
+	case okA && okB:
+		ta, tb := strings.Fields(ha), strings.Fields(hb)
+		if ta[0] != tb[0] || !chatdiff.Similar(ha, hb) {
+			return false
 		}
+	case !okA && !okB:
+		if !strings.HasPrefix(a, chatparse.NoticePrefix) || !strings.HasPrefix(b, chatparse.NoticePrefix) {
+			return false
+		}
+	default:
+		return false
 	}
-	return false
+	return chatparse.Quality(b) > chatparse.Quality(a)
 }
 
 // cleanColors keeps per-token colours only if they are well-formed hex and no more
