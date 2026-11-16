@@ -137,7 +137,7 @@ body[data-align="off"] .feed .hw { min-width: 0; padding-right: 0.3em; }
   .feed li { display: block; padding-left: 10px; text-indent: -10px; }
   .feed .hw, body[data-align="fixed"] .feed .hw { min-width: 0; padding-right: 0.3em; }
 }
-.feed li.hidden { display: none; }
+.feed li.hidden { display: none !important; }
 .feed .tag {
   display: inline-block;
   font-family: system-ui, sans-serif;
