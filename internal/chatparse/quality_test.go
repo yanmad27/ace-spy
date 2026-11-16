@@ -17,3 +17,20 @@ func TestQualityPrefersCleanReading(t *testing.T) {
 		t.Fatalf("Split = %q %q %v", h, b, ok)
 	}
 }
+
+func TestFixConfusions(t *testing.T) {
+	for in, want := range map[string]string{
+		"tầm nàv chỉ có":       "tầm này chỉ có",
+		"cho em xin 1 câv với": "cho em xin 1 cây với",
+		"thấv đấm MG ấv":       "thấy đấm MG ấy",
+		"NÀV":                  "NÀY",
+		"lấv,":                 "lấy,",
+		":v tv sv vc calll":    ":v tv sv vc calll",
+		"pvp vav dev":          "pvp vay dev",
+		"mấy cái này rồi":      "mấy cái này rồi",
+	} {
+		if got := fixConfusions(in); got != want {
+			t.Errorf("fixConfusions(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

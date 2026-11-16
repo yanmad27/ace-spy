@@ -57,6 +57,9 @@ func New(store *Store, static fs.FS, opts Options) http.Handler {
 	mux.Handle("GET /api/regions", s.viewAuth(http.HandlerFunc(s.regions)))
 	mux.Handle("POST /api/presence", s.viewAuth(http.HandlerFunc(s.presence)))
 	mux.HandleFunc("POST /api/heartbeat", s.ingestAuth(s.heartbeat))
+	mux.HandleFunc("POST /api/glyphs/unknown", s.ingestAuth(s.addGlyphs))
+	mux.Handle("GET /api/glyphs", s.viewAuth(http.HandlerFunc(s.listGlyphs)))
+	mux.HandleFunc("POST /api/glyphs/{hash}/label", s.ingestAuth(s.labelGlyph))
 	mux.HandleFunc("GET /api/cron/prune", s.cronPrune)
 	mux.HandleFunc("POST /api/samples", s.ingestAuth(s.addSample))
 	mux.HandleFunc("GET /api/samples", s.ingestAuth(s.listSamples))
@@ -509,6 +512,87 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Heartbeat(r.Context(), client, regions, now.UnixMilli(), now.Add(-presenceStale).UnixMilli()); err != nil {
 		log.Printf("heartbeat: %v", err)
 		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+const (
+	maxGlyphReport  = 100
+	maxGlyphCols    = 16
+	maxContextRunes = 300
+	maxLabelRunes   = 4
+	glyphListLimit  = 300
+)
+
+var glyphHashRe = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+func (s *Server) addGlyphs(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Glyphs []Glyph `json:"glyphs"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes)).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if len(req.Glyphs) == 0 || len(req.Glyphs) > maxGlyphReport {
+		http.Error(w, "invalid glyph count", http.StatusBadRequest)
+		return
+	}
+	for i, g := range req.Glyphs {
+		region, rerr := clean(g.Region, maxRegionRunes, false)
+		context, cerr := clean(g.Context, maxContextRunes, false)
+		ok := rerr == nil && cerr == nil && glyphHashRe.MatchString(g.Hash) && hexColorRe.MatchString(g.Color) &&
+			len(g.Cols) > 0 && len(g.Cols) <= maxGlyphCols && g.Count > 0 && g.Count < 1<<31
+		for _, c := range g.Cols {
+			ok = ok && c < 1<<24
+		}
+		if !ok {
+			http.Error(w, fmt.Sprintf("glyphs[%d]: invalid", i), http.StatusBadRequest)
+			return
+		}
+		req.Glyphs[i].Region, req.Glyphs[i].Context, req.Glyphs[i].Label = region, context, ""
+	}
+	if err := s.store.AddGlyphs(r.Context(), req.Glyphs, time.Now().UnixMilli()); err != nil {
+		log.Printf("glyphs: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listGlyphs(w http.ResponseWriter, r *http.Request) {
+	gs, err := s.store.Glyphs(r.Context(), r.URL.Query().Get("labelled") == "1", glyphListLimit)
+	if err != nil {
+		log.Printf("glyphs: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, gs)
+}
+
+func (s *Server) labelGlyph(w http.ResponseWriter, r *http.Request) {
+	hash := r.PathValue("hash")
+	var req struct {
+		Label string `json:"label"`
+	}
+	if !glyphHashRe.MatchString(hash) || json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req) != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	label, err := clean(req.Label, maxLabelRunes, true)
+	if err != nil || strings.TrimSpace(label) != label {
+		http.Error(w, "invalid label", http.StatusBadRequest)
+		return
+	}
+	found, err := s.store.LabelGlyph(r.Context(), hash, label)
+	if err != nil {
+		log.Printf("label glyph: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, "unknown glyph", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

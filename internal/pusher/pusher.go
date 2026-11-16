@@ -11,9 +11,12 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yanmad27/ace-spy/internal/glyphocr"
 )
 
 const (
@@ -28,7 +31,18 @@ const (
 	// The viewer shows LIVE while a heartbeat arrived in the last 45 s.
 	heartbeatEvery = 15 * time.Second
 	aliveWindow    = 30 * time.Second
+	// Unknown glyphs seen this many times in a report period are uploaded for labelling.
+	glyphReportEvery = 15 * time.Minute
+	glyphMinCount    = 2
+	maxGlyphReport   = 50
+	maxGlyphTracked  = 2000
 )
+
+type unknownSeen struct {
+	glyphocr.Unknown
+	Region string `json:"region"`
+	Count  int    `json:"count"`
+}
 
 type Message struct {
 	Region string   `json:"region"`
@@ -46,6 +60,7 @@ type Pusher struct {
 	endpoint   string
 	samplesURL string
 	beatURL    string
+	glyphsURL  string
 	token      string
 	client     string
 	http       *http.Client
@@ -56,6 +71,7 @@ type Pusher struct {
 	dropped int
 	notify  chan struct{}
 	alive   map[string]time.Time
+	unknown map[string]*unknownSeen
 }
 
 func New(serverURL, token, clientName string, onStatus func(string)) *Pusher {
@@ -67,13 +83,93 @@ func New(serverURL, token, clientName string, onStatus func(string)) *Pusher {
 		endpoint:   base + "/api/ingest",
 		samplesURL: base + "/api/samples",
 		beatURL:    base + "/api/heartbeat",
+		glyphsURL:  base + "/api/glyphs",
 		token:      strings.TrimSpace(token),
 		client:     clientName,
 		http:       &http.Client{Timeout: requestLimit},
 		onStatus:   onStatus,
 		notify:     make(chan struct{}, 1),
 		alive:      map[string]time.Time{},
+		unknown:    map[string]*unknownSeen{},
 	}
+}
+
+// ReportUnknown counts unknown glyphs; recurring ones are uploaded periodically.
+func (p *Pusher) ReportUnknown(region string, us []glyphocr.Unknown) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, u := range us {
+		if s, ok := p.unknown[u.Hash]; ok {
+			s.Count++
+			s.Context = u.Context
+		} else if len(p.unknown) < maxGlyphTracked {
+			p.unknown[u.Hash] = &unknownSeen{Unknown: u, Region: region, Count: 1}
+		}
+	}
+}
+
+func (p *Pusher) takeUnknown() []unknownSeen {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []unknownSeen
+	for _, s := range p.unknown {
+		if s.Count >= glyphMinCount {
+			out = append(out, *s)
+		}
+	}
+	p.unknown = map[string]*unknownSeen{}
+	sort.Slice(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out[:min(len(out), maxGlyphReport)]
+}
+
+func (p *Pusher) reportGlyphs(ctx context.Context) {
+	t := time.NewTicker(glyphReportEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if us := p.takeUnknown(); len(us) > 0 {
+			if err := p.postJSON(ctx, p.glyphsURL+"/unknown", map[string]any{"client": p.client, "glyphs": us}); err != nil {
+				p.onStatus(fmt.Sprintf("unknown glyph report failed: %v", err))
+			} else {
+				p.onStatus(fmt.Sprintf("reported %d unknown glyphs for labelling", len(us)))
+			}
+		}
+	}
+}
+
+// LearnedGlyphs fetches the glyphs labelled on the server.
+func (p *Pusher) LearnedGlyphs(ctx context.Context) ([]glyphocr.Learned, error) {
+	ctx, cancel := context.WithTimeout(ctx, requestLimit)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.glyphsURL+"?labelled=1", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.token)
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var gs []struct {
+		Label string   `json:"label"`
+		Cols  []uint32 `json:"cols"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&gs); err != nil {
+		return nil, err
+	}
+	out := make([]glyphocr.Learned, 0, len(gs))
+	for _, g := range gs {
+		out = append(out, glyphocr.Learned{Text: g.Label, Cols: g.Cols})
+	}
+	return out, nil
 }
 
 // Alive records that region was just captured and OCR'd successfully.
@@ -160,6 +256,7 @@ func (p *Pusher) Enqueue(msgs ...Message) {
 
 func (p *Pusher) Run(ctx context.Context) {
 	go p.heartbeat(ctx)
+	go p.reportGlyphs(ctx)
 	backoff := minBackoff
 	for {
 		select {

@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"math/bits"
 	"sort"
@@ -48,8 +49,9 @@ type glyph struct {
 }
 
 type cached struct {
-	spans []Span
-	cost  int
+	spans   []Span
+	unknown []Span
+	cost    int
 }
 
 // Span is one decoded glyph and the pixel columns it occupies in the capture.
@@ -65,6 +67,8 @@ type Line struct {
 	// Visible has bit r set when cell row r is neither outside the image nor under
 	// UI chrome; 0 means all rows are visible.
 	Visible uint32
+	// Unknown are runs of inked columns no glyph explains (Text is empty).
+	Unknown []Span
 }
 
 // Text joins the line's glyphs, dropping anything after a wide blank gap (not chat,
@@ -82,6 +86,7 @@ func (l Line) Text() string {
 }
 
 type Engine struct {
+	gmu    sync.RWMutex // guards glyphs and byText against Learn
 	glyphs []glyph
 	cellH  int
 	top    int
@@ -120,27 +125,9 @@ func New() (*Engine, error) {
 	}
 	e.own = own
 	for text, g := range atlas.Glyphs {
-		var all uint32
-		ink := 0
-		for _, c := range g.Cols {
-			all |= c
-			ink += bits.OnesCount32(c)
-		}
-		care := own // blank glyphs: only this line's rows, not neighbours' overlap
-		if all != 0 {
-			lo, hi := bits.TrailingZeros32(all), 31-bits.LeadingZeros32(all)
-			care = 0
-			for y := max(lo-1, 0); y <= min(hi+1, atlas.CellHeight-1); y++ {
-				care |= 1 << y
-			}
-		}
-		e.glyphs = append(e.glyphs, glyph{text: text, adv: g.Adv, cols: g.Cols, over: g.Over, care: care, outside: own &^ care, ink: ink})
+		e.glyphs = append(e.glyphs, e.makeGlyph(text, g.Adv, g.Cols, g.Over))
 	}
-	sort.Slice(e.glyphs, func(i, j int) bool { return e.glyphs[i].text < e.glyphs[j].text })
-	e.byText = map[string]*glyph{}
-	for i := range e.glyphs {
-		e.byText[e.glyphs[i].text] = &e.glyphs[i]
-	}
+	e.index()
 	e.profile = make([]int, atlas.CellHeight)
 	for _, g := range e.glyphs {
 		if len(g.text) != 1 || !(g.text[0] >= 'a' && g.text[0] <= 'z' || g.text[0] >= '0' && g.text[0] <= '9' || g.text == "[" || g.text == "]") {
@@ -153,6 +140,67 @@ func New() (*Engine, error) {
 		}
 	}
 	return e, nil
+}
+
+func (e *Engine) makeGlyph(text string, adv int, cols, over []uint32) glyph {
+	var all uint32
+	ink := 0
+	for _, c := range cols {
+		all |= c
+		ink += bits.OnesCount32(c)
+	}
+	care := e.own // blank glyphs: only this line's rows, not neighbours' overlap
+	if all != 0 {
+		lo, hi := bits.TrailingZeros32(all), 31-bits.LeadingZeros32(all)
+		care = 0
+		for y := max(lo-1, 0); y <= min(hi+1, e.cellH-1); y++ {
+			care |= 1 << y
+		}
+	}
+	return glyph{text: text, adv: adv, cols: cols, over: over, care: care, outside: e.own &^ care, ink: ink}
+}
+
+func (e *Engine) index() {
+	sort.SliceStable(e.glyphs, func(i, j int) bool { return e.glyphs[i].text < e.glyphs[j].text })
+	e.byText = map[string]*glyph{}
+	for i := range e.glyphs {
+		if _, dup := e.byText[e.glyphs[i].text]; !dup {
+			e.byText[e.glyphs[i].text] = &e.glyphs[i]
+		}
+	}
+}
+
+// Learned is a glyph taught at run time: a label for a pixel pattern the atlas lacks.
+type Learned struct {
+	Text string   `json:"text"`
+	Cols []uint32 `json:"cols"`
+}
+
+// Learn adds glyphs to the atlas; a bitmap already known is ignored. It reports how
+// many were added.
+func (e *Engine) Learn(gs []Learned) int {
+	e.gmu.Lock()
+	defer e.gmu.Unlock()
+	known := map[string]bool{}
+	for _, g := range e.glyphs {
+		known[fmt.Sprint(g.cols)] = true
+	}
+	added := 0
+	for _, g := range gs {
+		if g.Text == "" || len(g.Cols) == 0 || len(g.Cols) > 16 || known[fmt.Sprint(g.Cols)] {
+			continue
+		}
+		known[fmt.Sprint(g.Cols)] = true
+		e.glyphs = append(e.glyphs, e.makeGlyph(g.Text, len(g.Cols), g.Cols, nil))
+		added++
+	}
+	if added > 0 {
+		e.index()
+		e.mu.Lock()
+		e.cache, e.order = map[uint64]cached{}, nil
+		e.mu.Unlock()
+	}
+	return added
 }
 
 func (e *Engine) Close() {}
@@ -282,10 +330,10 @@ func (e *Engine) readLine(ink, hidden []bool, w, h, top int) (Line, bool) {
 			continue
 		}
 		cols = cols[:min(last+10, w)] // room for a trailing glyph's full advance
-		spans, cost := e.decodeCached(cols, visible)
+		spans, unknown, cost := e.decodeCached(cols, visible)
 		norm := float64(cost) / float64(len(cols))
 		if !found || norm < bestCost {
-			bestLine, bestCost, found = Line{Top: top + dy, Spans: spans, Visible: visible}, norm, true
+			bestLine, bestCost, found = Line{Top: top + dy, Spans: spans, Visible: visible, Unknown: unknown}, norm, true
 		}
 	}
 	return bestLine, found
@@ -300,7 +348,22 @@ func (e *Engine) coreMask() uint32 {
 	return m
 }
 
-func (e *Engine) decodeCached(cols []uint32, visible uint32) ([]Span, int) {
+// poorMatch: the glyph was the best fit but leaves a third of the ink wrong, as when
+// a character missing from the atlas is forced onto the nearest glyph.
+func (e *Engine) poorMatch(g *glyph, cols []uint32, visible uint32) bool {
+	wrong, ink := 0, 0
+	for i, v := range cols {
+		var t uint32
+		if i < len(g.cols) {
+			t = g.cols[i]
+		}
+		wrong += bits.OnesCount32((v^t)&g.care&visible) + bits.OnesCount32(v&g.outside&visible)
+		ink += bits.OnesCount32(v & visible)
+	}
+	return wrong >= 3 && 3*wrong >= max(ink, g.ink)
+}
+
+func (e *Engine) decodeCached(cols []uint32, visible uint32) ([]Span, []Span, int) {
 	h := fnv.New64a()
 	b := make([]byte, 4)
 	b[0], b[1], b[2], b[3] = byte(visible), byte(visible>>8), byte(visible>>16), byte(visible>>24)
@@ -313,25 +376,28 @@ func (e *Engine) decodeCached(cols []uint32, visible uint32) ([]Span, int) {
 	e.mu.Lock()
 	if c, ok := e.cache[key]; ok {
 		e.mu.Unlock()
-		return c.spans, c.cost
+		return c.spans, c.unknown, c.cost
 	}
 	e.mu.Unlock()
-	spans, cost := e.decode(cols, visible)
+	spans, unknown, cost := e.decode(cols, visible)
 	e.mu.Lock()
 	if len(e.order) >= cacheSize {
 		delete(e.cache, e.order[0])
 		e.order = e.order[1:]
 	}
-	e.cache[key] = cached{spans, cost}
+	e.cache[key] = cached{spans, unknown, cost}
 	e.order = append(e.order, key)
 	e.mu.Unlock()
-	return spans, cost
+	return spans, unknown, cost
 }
 
 // decode finds the minimum-cost segmentation of cols into glyphs (each may be one
 // pixel narrower or wider than its nominal advance) and unexplained skipped columns.
-// Only the visible rows of each glyph are compared.
-func (e *Engine) decode(cols []uint32, visible uint32) ([]Span, int) {
+// Only the visible rows of each glyph are compared. Runs of skipped columns that hold
+// ink in the line's own rows are returned as unknown.
+func (e *Engine) decode(cols []uint32, visible uint32) ([]Span, []Span, int) {
+	e.gmu.RLock()
+	defer e.gmu.RUnlock()
 	n := len(cols)
 	const inf = 1 << 30
 	best := make([]int, n+1)
@@ -412,14 +478,28 @@ func (e *Engine) decode(cols []uint32, visible uint32) ([]Span, int) {
 			}
 		}
 	}
-	var spans []Span
+	var spans, unknown []Span
 	for i := n; i > 0; i = from[i] {
-		if pick[i] >= 0 {
-			spans = append(spans, Span{Text: e.glyphs[pick[i]].text, X: from[i], W: i - from[i]})
+		switch {
+		case pick[i] >= 0:
+			g := &e.glyphs[pick[i]]
+			spans = append(spans, Span{Text: g.text, X: from[i], W: i - from[i]})
+			if g.ink > 0 && e.poorMatch(g, cols[from[i]:i], visible) {
+				unknown = append(unknown, Span{X: from[i], W: i - from[i]})
+			}
+		case cols[from[i]]&e.own&visible != 0:
+			if k := len(unknown) - 1; k >= 0 && unknown[k].X == i {
+				unknown[k].X, unknown[k].W = from[i], unknown[k].W+1
+			} else {
+				unknown = append(unknown, Span{X: from[i], W: 1})
+			}
 		}
 	}
 	for i, j := 0, len(spans)-1; i < j; i, j = i+1, j-1 {
 		spans[i], spans[j] = spans[j], spans[i]
 	}
-	return spans, best[n]
+	for i, j := 0, len(unknown)-1; i < j; i, j = i+1, j-1 {
+		unknown[i], unknown[j] = unknown[j], unknown[i]
+	}
+	return spans, unknown, best[n]
 }

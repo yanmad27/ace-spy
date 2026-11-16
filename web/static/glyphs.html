@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SFA Spy · Ký tự lạ</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="glyph-page">
+  <header>
+    <a class="home" href="./"><h1 class="logo" aria-label="SFA Spy"><span class="logo-text" aria-hidden="true">SFA SPY</span></h1></a>
+    <span class="title">Ký tự OCR chưa biết</span>
+    <input id="token" type="password" placeholder="Token (để gán nhãn)" autocomplete="off">
+  </header>
+  <main>
+    <p class="hint">Client gửi lên các ký tự xuất hiện lặp lại trong chat nhưng không khớp glyph nào. Gõ đúng ký tự rồi bấm Lưu: mọi client sẽ học nó trong vòng 15 phút. Để trống rồi Lưu để bỏ nhãn.</p>
+    <p id="state" class="hint"></p>
+    <ul id="glyphs" class="glyphs"></ul>
+  </main>
+  <script src="glyphs.js"></script>
+</body>
+</html>

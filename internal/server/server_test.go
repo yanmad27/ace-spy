@@ -27,7 +27,7 @@ func newTestServer(t *testing.T, opts Options) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(store.Close)
-	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers, capturers RESTART IDENTITY`); err != nil {
+	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers, capturers, glyphs RESTART IDENTITY`); err != nil {
 		t.Fatal(err)
 	}
 	opts.IngestToken = token
@@ -316,5 +316,45 @@ func TestBetterReadingReplacesWorse(t *testing.T) {
 	getJSON(t, srv.URL+"/api/messages?after="+itoa(first[0].ID), &after)
 	if len(after) != 1 || after[0].Replaces != first[0].ID {
 		t.Fatalf("poll after first = %+v", after)
+	}
+}
+
+func TestGlyphReportLabelAndList(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	report := `{"client":"pc","glyphs":[{"hash":"fde638a4c98064a1","cols":[512,768,8128,8064,8128,768,512,0],"color":"ea2222","context":"^[10:25] [Mo] [BC] ab□cd","region":"BCU","count":3}]}`
+	if r := do(t, "POST", srv.URL+"/api/glyphs/unknown", "", report); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated report = %d", r.StatusCode)
+	}
+	for i := 0; i < 2; i++ {
+		if r := do(t, "POST", srv.URL+"/api/glyphs/unknown", "Bearer "+token, report); r.StatusCode != http.StatusNoContent {
+			t.Fatalf("report = %d", r.StatusCode)
+		}
+	}
+	bad := strings.Replace(report, `"ea2222"`, `"red"`, 1)
+	if r := do(t, "POST", srv.URL+"/api/glyphs/unknown", "Bearer "+token, bad); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad colour = %d", r.StatusCode)
+	}
+	var gs []Glyph
+	getJSON(t, srv.URL+"/api/glyphs", &gs)
+	if len(gs) != 1 || gs[0].Count != 6 || len(gs[0].Cols) != 8 || gs[0].Label != "" {
+		t.Fatalf("glyphs = %+v", gs)
+	}
+	var learned []Glyph
+	getJSON(t, srv.URL+"/api/glyphs?labelled=1", &learned)
+	if len(learned) != 0 {
+		t.Fatalf("labelled before labelling: %+v", learned)
+	}
+	if r := do(t, "POST", srv.URL+"/api/glyphs/fde638a4c98064a1/label", "", `{"label":"★"}`); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated label = %d", r.StatusCode)
+	}
+	if r := do(t, "POST", srv.URL+"/api/glyphs/fde638a4c98064a1/label", "Bearer "+token, `{"label":"★"}`); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("label = %d", r.StatusCode)
+	}
+	if r := do(t, "POST", srv.URL+"/api/glyphs/0000000000000000/label", "Bearer "+token, `{"label":"x"}`); r.StatusCode != http.StatusNotFound {
+		t.Fatalf("label missing = %d", r.StatusCode)
+	}
+	getJSON(t, srv.URL+"/api/glyphs?labelled=1", &learned)
+	if len(learned) != 1 || learned[0].Label != "★" {
+		t.Fatalf("labelled = %+v", learned)
 	}
 }

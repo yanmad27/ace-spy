@@ -354,3 +354,21 @@ body > header h1.logo::after {
 .jump:hover { background: rgba(30, 90, 150, 0.95); }
 .jump[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) { .viewers circle { animation: none; } }
+
+.glyph-page { overflow: auto; }
+.glyph-page .home { text-decoration: none; }
+.glyph-page .title { color: #e8fbff; font-weight: 700; }
+.glyph-page #token { margin-left: auto; width: min(260px, 100%); padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(62, 200, 255, 0.6); background: rgba(8, 20, 32, 0.7); color: var(--text); }
+.glyph-page main { padding: 12px 16px 32px; max-width: 980px; }
+.glyph-page .hint { color: #b8d4ee; margin: 6px 0 12px; }
+.glyphs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.glyphs li { display: flex; gap: 14px; align-items: center; padding: 10px; border: 1px solid rgba(62, 200, 255, 0.5); border-radius: 8px; background: rgba(16, 40, 64, 0.6); }
+.glyphs canvas { flex: none; image-rendering: pixelated; border: 1px solid #23415f; border-radius: 4px; max-height: 120px; width: auto; }
+.glyphs .info { min-width: 0; display: grid; gap: 6px; }
+.glyphs .ctx { font: 14px/1.5 Verdana, Tahoma, sans-serif; color: #e8fbff; overflow-wrap: anywhere; }
+.glyphs .ctx mark { background: #ff9a2e; color: #0b1621; padding: 0 2px; border-radius: 3px; }
+.glyphs .meta { font-size: 12px; color: #8fb3d4; }
+.glyphs form { display: flex; gap: 8px; align-items: center; }
+.glyphs input { width: 64px; padding: 4px 8px; font: 16px Verdana, sans-serif; border-radius: 6px; border: 1px solid rgba(62, 200, 255, 0.6); background: #0b1621; color: #fff; }
+.glyphs button { padding: 4px 12px; border-radius: 6px; border: 1px solid #3ec8ff; background: rgba(30, 90, 150, 0.9); color: #fff; cursor: pointer; }
+.glyphs .status-text { font-size: 12px; color: #b8d4ee; }

@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/yanmad27/ace-spy/internal/chatdiff"
 	"github.com/yanmad27/ace-spy/internal/chatparse"
 	"github.com/yanmad27/ace-spy/internal/config"
+	"github.com/yanmad27/ace-spy/internal/glyphocr"
 	"github.com/yanmad27/ace-spy/internal/pusher"
 )
 
@@ -24,6 +26,11 @@ type GrabberFactory func(r config.Region) (Grabber, error)
 
 type Recognizer interface {
 	Recognize(bgra []byte, width, height int) ([]string, error)
+}
+
+// FullRecognizer also reports glyphs the OCR atlas does not know.
+type FullRecognizer interface {
+	RecognizeAll(bgra []byte, width, height int) ([]string, [][]string, []glyphocr.Unknown, error)
 }
 
 // ColorRecognizer also reports the colour of each token of each line.
@@ -45,6 +52,8 @@ type Events struct {
 	OnError func(regionID string, err error)
 	// OnSample receives a captured frame and its raw OCR lines every SampleEvery.
 	OnSample func(reg config.Region, bgra []byte, w, h int, ocr []string)
+	// OnUnknown receives unknown glyphs found on chat lines of a new frame.
+	OnUnknown func(reg config.Region, unknown []glyphocr.Unknown)
 }
 
 const SampleEvery = 15 * time.Minute
@@ -123,7 +132,10 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 	}
 	var lines []string
 	var colors [][]string
-	if cr, ok := r.ocr.(ColorRecognizer); ok {
+	var unknown []glyphocr.Unknown
+	if fr, ok := r.ocr.(FullRecognizer); ok {
+		lines, colors, unknown, err = fr.RecognizeAll(pix, w, h)
+	} else if cr, ok := r.ocr.(ColorRecognizer); ok {
 		lines, colors, err = cr.RecognizeColored(pix, w, h)
 	} else {
 		lines, err = r.ocr.Recognize(pix, w, h)
@@ -136,6 +148,11 @@ func (r *Runner) tick(reg config.Region, g Grabber, names *chatparse.NameBook, t
 	if r.events.OnSample != nil && time.Since(*lastSample) >= SampleEvery {
 		*lastSample = time.Now()
 		r.events.OnSample(reg, pix, w, h, lines)
+	}
+	if r.events.OnUnknown != nil {
+		if chat := chatUnknowns(unknown); len(chat) > 0 {
+			r.events.OnUnknown(reg, chat)
+		}
 	}
 	colored := names.MessagesColored(lines, colors)
 	msgs := make([]string, len(colored))
@@ -162,4 +179,15 @@ func (r *Runner) alive(reg config.Region) {
 	if a, ok := r.sink.(AliveSink); ok {
 		a.Alive(reg.Label)
 	}
+}
+
+// chatUnknowns keeps unknown glyphs found on real chat lines (a parsable header).
+func chatUnknowns(us []glyphocr.Unknown) []glyphocr.Unknown {
+	var out []glyphocr.Unknown
+	for _, u := range us {
+		if _, _, ok := chatparse.Split(strings.Replace(u.Context, glyphocr.UnknownMark, "", 1)); ok {
+			out = append(out, u)
+		}
+	}
+	return out
 }

@@ -77,6 +77,18 @@ CREATE TABLE IF NOT EXISTS capturers (
 	PRIMARY KEY (client, region)
 );
 ALTER TABLE capturers ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS glyphs (
+	hash       TEXT   PRIMARY KEY,
+	cols       BIGINT[] NOT NULL,
+	color      TEXT   NOT NULL,
+	context    TEXT   NOT NULL,
+	region     TEXT   NOT NULL,
+	count      BIGINT NOT NULL,
+	label      TEXT   NOT NULL DEFAULT '',
+	first_seen BIGINT NOT NULL,
+	last_seen  BIGINT NOT NULL
+);
+ALTER TABLE glyphs ENABLE ROW LEVEL SECURITY;
 `
 
 func OpenStore(ctx context.Context, databaseURL string) (*Store, error) {
@@ -335,4 +347,66 @@ func (s *Store) Capturing(ctx context.Context, since int64) (clients int64, regi
 		SELECT COUNT(DISTINCT client), COALESCE(array_agg(DISTINCT region ORDER BY region), '{}')
 		FROM capturers WHERE seen_at >= $1`, since).Scan(&clients, &regions)
 	return clients, regions, err
+}
+
+// Glyph is an unknown glyph reported by clients, optionally labelled with its text.
+type Glyph struct {
+	Hash      string   `json:"hash"`
+	Cols      []uint32 `json:"cols"`
+	Color     string   `json:"color"`
+	Context   string   `json:"context"`
+	Region    string   `json:"region"`
+	Count     int64    `json:"count"`
+	Label     string   `json:"label"`
+	FirstSeen int64    `json:"firstSeen"`
+	LastSeen  int64    `json:"lastSeen"`
+}
+
+// AddGlyphs records sightings of unknown glyphs, adding to their counts.
+func (s *Store) AddGlyphs(ctx context.Context, gs []Glyph, now int64) error {
+	batch := &pgx.Batch{}
+	for _, g := range gs {
+		cols := make([]int64, len(g.Cols))
+		for i, c := range g.Cols {
+			cols[i] = int64(c)
+		}
+		batch.Queue(`
+			INSERT INTO glyphs (hash, cols, color, context, region, count, first_seen, last_seen)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+			ON CONFLICT (hash) DO UPDATE SET count = glyphs.count + EXCLUDED.count,
+				context = EXCLUDED.context, last_seen = EXCLUDED.last_seen`,
+			g.Hash, cols, g.Color, g.Context, g.Region, g.Count, now)
+	}
+	return s.pool.SendBatch(ctx, batch).Close()
+}
+
+// Glyphs lists unknown glyphs, unlabelled and most frequent first; labelled limits
+// the list to glyphs with a label.
+func (s *Store) Glyphs(ctx context.Context, labelled bool, limit int) ([]Glyph, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT hash, cols, color, context, region, count, label, first_seen, last_seen FROM glyphs
+		WHERE NOT $1 OR label <> ''
+		ORDER BY label <> '', count DESC LIMIT $2`, labelled, limit)
+	if err != nil {
+		return nil, err
+	}
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Glyph, error) {
+		var g Glyph
+		var cols []int64
+		err := r.Scan(&g.Hash, &cols, &g.Color, &g.Context, &g.Region, &g.Count, &g.Label, &g.FirstSeen, &g.LastSeen)
+		for _, c := range cols {
+			g.Cols = append(g.Cols, uint32(c))
+		}
+		return g, err
+	})
+	if out == nil {
+		out = []Glyph{}
+	}
+	return out, err
+}
+
+// LabelGlyph sets (or with "" clears) the text of a glyph; false if hash is unknown.
+func (s *Store) LabelGlyph(ctx context.Context, hash, label string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE glyphs SET label = $2 WHERE hash = $1`, hash, label)
+	return tag.RowsAffected() == 1, err
 }

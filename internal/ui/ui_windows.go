@@ -426,7 +426,8 @@ func (a *app) start() {
 					}
 				})
 			},
-			OnError: func(id string, err error) { a.asyncLogf("[%s] %v", labels[id], err) },
+			OnError:   func(id string, err error) { a.asyncLogf("[%s] %v", labels[id], err) },
+			OnUnknown: func(reg config.Region, us []glyphocr.Unknown) { p.ReportUnknown(reg.Label, us) },
 			OnSample: func(reg config.Region, pix []byte, w, h int, ocr []string) {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -442,6 +443,9 @@ func (a *app) start() {
 	stopped := make(chan struct{})
 	regions := append([]config.Region(nil), a.cfg.Regions...)
 	go p.Run(ctx)
+	if ge, ok := e.(*glyphocr.Engine); ok {
+		go a.learnGlyphs(ctx, p, ge)
+	}
 	go func() {
 		defer close(stopped)
 		rn.Run(ctx, regions)
@@ -543,6 +547,29 @@ func (m *regionModel) setLast(id string, visible []string) {
 		if r.ID == id {
 			m.PublishRowChanged(i)
 			return
+		}
+	}
+}
+
+const learnEvery = 15 * time.Minute
+
+// learnGlyphs adds glyphs labelled on the server (from unknown-glyph reports) to the
+// running OCR atlas, at start and then periodically.
+func (a *app) learnGlyphs(ctx context.Context, p *pusher.Pusher, e *glyphocr.Engine) {
+	t := time.NewTicker(learnEvery)
+	defer t.Stop()
+	for {
+		if gs, err := p.LearnedGlyphs(ctx); err != nil {
+			if ctx.Err() == nil {
+				a.asyncLogf("Learned glyphs unavailable: %v", err)
+			}
+		} else if n := e.Learn(gs); n > 0 {
+			a.asyncLogf("OCR learned %d new glyphs", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
 		}
 	}
 }

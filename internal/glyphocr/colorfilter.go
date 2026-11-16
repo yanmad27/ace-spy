@@ -27,7 +27,9 @@ type glyphColor struct {
 
 func (e *Engine) spanColor(bgra []byte, w, h int, l Line, sp Span) glyphColor {
 	top := l.Top
+	e.gmu.RLock()
 	g := e.byText[sp.Text]
+	e.gmu.RUnlock()
 	if g == nil {
 		return glyphColor{}
 	}

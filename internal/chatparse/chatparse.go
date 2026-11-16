@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 )
@@ -87,7 +88,7 @@ func assembleColored(lines []string, colors [][]string) []*message {
 	var cur *message
 	flush := func() {
 		if cur != nil && cur.meaningful() {
-			cur.body = fixNumbers(cur.body)
+			cur.body = fixConfusions(fixNumbers(cur.body))
 			out = append(out, cur)
 		}
 		cur = nil
@@ -288,6 +289,62 @@ func MessagesColored(lines []string, colors [][]string) []Msg {
 
 // Inside numbers the game font's 0 is often read as D or O ("30D", "4Dk").
 var zeroLikeRe = regexp.MustCompile(`\b\d+[DOo][\dDOo]*(?:k|m|tr)?\b|\b\d*[DOo]\d+[\dDOo]*(?:k|m|tr)?\b`)
+
+// fixConfusions repairs words ending in "v" after a/â/u that are not Vietnamese but are
+// with "y" ("nàv" -> "này", "ấv" -> "ấy"): the OCR reads y as v when its descender is
+// hidden. No Vietnamese word ends in v, so slang (":v", "tv", "pvp") and player typos
+// the swap would not fix are left alone.
+func fixConfusions(s string) string {
+	toks := strings.Fields(s)
+	changed := false
+	for i, tok := range toks {
+		end := strings.LastIndexFunc(tok, unicode.IsLetter)
+		if end < 0 || (tok[end] != 'v' && tok[end] != 'V') {
+			continue
+		}
+		start := end
+		for start > 0 {
+			r, n := utf8.DecodeLastRuneInString(tok[:start])
+			if !unicode.IsLetter(r) {
+				break
+			}
+			start -= n
+		}
+		word := tok[start : end+1]
+		rs := []rune(word)
+		if len(rs) < 2 || IsSyllable(word) || chatWords[strings.ToLower(word)] || !strings.ContainsRune("aâuAÂU", baseRune(rs[len(rs)-2])) {
+			continue
+		}
+		y := 'y'
+		if tok[end] == 'V' {
+			y = 'Y'
+		}
+		cand := string(rs[:len(rs)-1]) + string(y)
+		if IsSyllable(cand) {
+			toks[i] = tok[:start] + cand + tok[end+1:]
+			changed = true
+		}
+	}
+	if !changed {
+		return s
+	}
+	return strings.Join(toks, " ")
+}
+
+// baseRune strips tone marks but keeps the letter's own shape (ầ -> â, ú -> u).
+func baseRune(r rune) rune {
+	d := []rune(norm.NFD.String(string(r)))
+	if len(d) == 0 {
+		return r
+	}
+	base := string(d[0])
+	for _, m := range d[1:] {
+		if m == '\u0302' || m == '\u0306' || m == '\u031b' { // circumflex, breve, horn
+			base += string(m)
+		}
+	}
+	return []rune(norm.NFC.String(base))[0]
+}
 
 func fixNumbers(s string) string {
 	return zeroLikeRe.ReplaceAllStringFunc(s, func(tok string) string {
