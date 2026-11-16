@@ -276,3 +276,48 @@ body > header h1.logo::after {
   background: linear-gradient(90deg, transparent, #ff9a2e 30%, #ffd27a 60%, transparent);
   box-shadow: 0 0 6px rgba(255, 140, 30, 0.9);
 }
+
+.viewers {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  border: 1px solid rgba(62, 200, 255, 0.7);
+  border-radius: 999px;
+  color: #e8fbff;
+  font: 700 12px/1.4 Verdana, Tahoma, sans-serif;
+  font-variant-numeric: tabular-nums;
+  background: rgba(8, 20, 32, 0.55);
+  box-shadow: 0 0 6px rgba(62, 200, 255, 0.45);
+}
+.viewers[hidden] { display: none; }
+.viewers svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #3ec8ff;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 3px rgba(62, 200, 255, 0.9));
+}
+.viewers circle { fill: #3ec8ff; animation: blink 4s infinite; transform-origin: 12px 12px; }
+@keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pane { position: relative; }
+.jump {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  z-index: 2;
+  padding: 5px 12px;
+  border: 1px solid #3ec8ff;
+  border-radius: 999px;
+  color: #e8fbff;
+  font: 700 12px Verdana, Tahoma, sans-serif;
+  background: rgba(16, 52, 88, 0.88);
+  box-shadow: 0 0 8px rgba(62, 200, 255, 0.7);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.jump:hover { background: rgba(30, 90, 150, 0.95); }
+.jump[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .viewers circle { animation: none; } }

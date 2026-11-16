@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS samples (
 );
 CREATE INDEX IF NOT EXISTS idx_samples_region_id ON samples(region, id);
 ALTER TABLE samples ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS viewers (
+	id      TEXT   PRIMARY KEY,
+	seen_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_viewers_seen ON viewers(seen_at);
+ALTER TABLE viewers ENABLE ROW LEVEL SECURITY;
 `
 
 func OpenStore(ctx context.Context, databaseURL string) (*Store, error) {
@@ -248,4 +254,21 @@ func (s *Store) Prune(ctx context.Context, olderThan int64) (int64, error) {
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// Presence records a heartbeat from viewer id at now and returns how many viewers,
+// including this one, sent a heartbeat at or after activeSince. Rows older than
+// staleBefore are deleted on the way.
+func (s *Store) Presence(ctx context.Context, id string, now, activeSince, staleBefore int64) (int64, error) {
+	var others int64
+	err := s.pool.QueryRow(ctx, `
+		WITH up AS (
+			INSERT INTO viewers (id, seen_at) VALUES ($1, $2)
+			ON CONFLICT (id) DO UPDATE SET seen_at = EXCLUDED.seen_at
+		), gone AS (
+			DELETE FROM viewers WHERE seen_at < $4
+		)
+		SELECT COUNT(*) FROM viewers WHERE seen_at >= $3 AND id <> $1`,
+		id, now, activeSince, staleBefore).Scan(&others)
+	return others + 1, err
 }

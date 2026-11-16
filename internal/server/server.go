@@ -55,6 +55,7 @@ func New(store *Store, static fs.FS, opts Options) http.Handler {
 	mux.HandleFunc("POST /api/ingest", s.ingest)
 	mux.Handle("GET /api/messages", s.viewAuth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/regions", s.viewAuth(http.HandlerFunc(s.regions)))
+	mux.Handle("POST /api/presence", s.viewAuth(http.HandlerFunc(s.presence)))
 	mux.HandleFunc("GET /api/cron/prune", s.cronPrune)
 	mux.HandleFunc("POST /api/samples", s.ingestAuth(s.addSample))
 	mux.HandleFunc("GET /api/samples", s.ingestAuth(s.listSamples))
@@ -387,6 +388,32 @@ func (s *Server) cronPrune(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}
+
+const (
+	// Viewers send a heartbeat every 15 s; one missed beat is tolerated.
+	presenceActive = 45 * time.Second
+	presenceStale  = time.Hour
+)
+
+var viewerIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{16,64}$`)
+
+func (s *Server) presence(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil || !viewerIDRe.MatchString(req.ID) {
+		http.Error(w, "invalid viewer id", http.StatusBadRequest)
+		return
+	}
+	now := time.Now()
+	n, err := s.store.Presence(r.Context(), req.ID, now.UnixMilli(), now.Add(-presenceActive).UnixMilli(), now.Add(-presenceStale).UnixMilli())
+	if err != nil {
+		log.Printf("presence: %v", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"online": n})
 }
 
 func parseID(s string) (int64, bool) {

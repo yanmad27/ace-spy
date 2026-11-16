@@ -27,7 +27,7 @@ func newTestServer(t *testing.T, opts Options) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(store.Close)
-	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples RESTART IDENTITY`); err != nil {
+	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers RESTART IDENTITY`); err != nil {
 		t.Fatal(err)
 	}
 	opts.IngestToken = token
@@ -218,5 +218,33 @@ func getJSON(t *testing.T, url string, v any) {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPresenceCountsDistinctViewers(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	beat := func(id string) (int, int64) {
+		resp, err := http.Post(srv.URL+"/api/presence", "application/json", strings.NewReader(`{"id":"`+id+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out struct{ Online int64 }
+		json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out.Online
+	}
+	a, b := "aaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbb"
+	for _, step := range []struct {
+		id   string
+		want int64
+	}{{a, 1}, {a, 1}, {b, 2}, {a, 2}} {
+		if code, n := beat(step.id); code != 200 || n != step.want {
+			t.Fatalf("beat(%s) = %d, %d; want 200, %d", step.id[:1], code, n, step.want)
+		}
+	}
+	for _, bad := range []string{"short", "has space in the id!!", strings.Repeat("x", 65)} {
+		if code, _ := beat(bad); code != http.StatusBadRequest {
+			t.Errorf("beat(%q) = %d", bad, code)
+		}
 	}
 }

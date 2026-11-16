@@ -187,6 +187,14 @@ class Pane {
     this.lastId = 0;
     this.gen = 0;
     this.seen = new Set();
+    this.unread = 0;
+    this.jumpBtn = document.createElement("button");
+    this.jumpBtn.type = "button";
+    this.jumpBtn.className = "jump";
+    this.jumpBtn.hidden = true;
+    el.append(this.jumpBtn);
+    this.jumpBtn.addEventListener("click", () => this.scroll.scrollTo({ top: this.scroll.scrollHeight, behavior: "smooth" }));
+    this.scroll.addEventListener("scroll", () => this.updateJump(), { passive: true });
     this.select.addEventListener("change", () => this.setRegion(this.select.value).catch(console.error));
     this.olderBtn.addEventListener("click", () => this.loadOlder().catch(console.error));
   }
@@ -209,6 +217,13 @@ class Pane {
     }
   }
 
+  updateJump() {
+    const away = !this.nearBottom();
+    if (!away) this.unread = 0;
+    this.jumpBtn.hidden = !away;
+    this.jumpBtn.textContent = this.unread ? `↓ ${this.unread} tin mới` : "↓ Mới nhất";
+  }
+
   nearBottom() {
     return this.scroll.scrollHeight - this.scroll.scrollTop - this.scroll.clientHeight < 80;
   }
@@ -216,7 +231,7 @@ class Pane {
   // Inserts messages ordered by in-game [hh:mm], ties by capture order (id),
   // skipping messages already shown (same region and text, ignoring accents/case).
   insert(msgs) {
-    let added = false;
+    let added = 0;
     for (const m of msgs) {
       const dup = `${m.region}|${foldText(m.text)}`;
       if (this.seen.has(dup)) continue;
@@ -236,7 +251,7 @@ class Pane {
         }
       }
       this.feed.insertBefore(li, kids[lo] || null);
-      added = true;
+      added++;
     }
     while (this.feed.childElementCount > MAX_ROWS) {
       this.feed.firstElementChild.remove();
@@ -248,9 +263,11 @@ class Pane {
   append(msgs) {
     if (!msgs.length) return;
     const stick = autoEl.checked && this.nearBottom();
-    this.insert(msgs);
+    const added = this.insert(msgs);
     if (stick) this.scroll.scrollTop = this.scroll.scrollHeight;
+    else if (!this.nearBottom()) this.unread += added;
     this.updateCount();
+    this.updateJump();
   }
 
   showSkeleton() {
@@ -403,6 +420,39 @@ searchEl.addEventListener("input", () => {
     }
   }, 150);
 });
+
+// Presence: one random id per browser, so several tabs count as one viewer.
+const HEARTBEAT_MS = 15000;
+const viewersEl = $("#viewers");
+const viewerId = (() => {
+  const key = "ace-spy.viewer";
+  let id = load(key);
+  if (!id || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) {
+    id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+    save(key, id);
+  }
+  return id;
+})();
+
+async function heartbeat() {
+  try {
+    const r = await fetch("api/presence", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: viewerId }),
+    });
+    if (!r.ok) throw new Error(`${r.status}`);
+    const { online } = await r.json();
+    $(".n", viewersEl).textContent = online;
+    viewersEl.hidden = false;
+  } catch {
+    viewersEl.hidden = true;
+  }
+}
+
+heartbeat();
+setInterval(heartbeat, HEARTBEAT_MS);
 
 (async function init() {
   try {
