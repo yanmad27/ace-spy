@@ -562,13 +562,13 @@ searchEl.addEventListener("input", () => {
 // Message column: "auto" (widest header shown), a fixed width in px, or "off".
 const ALIGN_KEY = "ace-spy.align";
 function setAlign(v) {
-  if (![...alignEl.options].some((o) => o.value === v)) v = "auto";
+  if (![...alignEl.options].some((o) => o.value === v)) v = "off";
   alignEl.value = v;
   document.body.dataset.align = /^\d+$/.test(v) ? "fixed" : v;
   document.body.style.setProperty("--head-fixed", /^\d+$/.test(v) ? `${v}px` : "0px");
   save(ALIGN_KEY, v);
 }
-setAlign(load(ALIGN_KEY) || "auto");
+setAlign(load(ALIGN_KEY) || "off");
 alignEl.addEventListener("change", () => setAlign(alignEl.value));
 
 const settingsEl = $("#settings");
