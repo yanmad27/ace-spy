@@ -409,25 +409,7 @@ body > header h1.logo::after {
 }
 .brand .status::before { display: none; }
 .brand .status::after { content: none !important; }
-/* State change: the new colour sweeps along the line behind a white tip. */
-body > header .brand h1.logo::before {
-  content: "";
-  position: absolute;
-  left: 6px;
-  bottom: 0;
-  z-index: 1;
-  width: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, var(--to) 15%, var(--to) calc(100% - 16px), #ffffff);
-  box-shadow: 0 0 6px var(--to);
-  opacity: 0;
-}
-body > header .brand.wiping h1.logo::before { opacity: 1; animation: state-wipe 0.9s ease-in-out forwards; }
-@keyframes state-wipe {
-  from { width: 0; }
-  to { width: calc(100% - 8px); }
-}
+
 .brand .status::after {
   content: attr(data-short);
   font: 700 8px/11px Verdana, Tahoma, sans-serif;
@@ -435,24 +417,65 @@ body > header .brand.wiping h1.logo::before { opacity: 1; animation: state-wipe 
   color: var(--sc);
   text-shadow: 0 0 4px color-mix(in srgb, var(--sc) 90%, transparent);
 }
-body > header .brand h1.logo::after {
+/* The line under the logo: base colour, the new colour sliding in on a state change,
+   and the heartbeat sweep on top. All layers share one faded-ends mask; only
+   transform and opacity animate, so it stays smooth. */
+body > header .brand h1.logo::after { content: none; }
+.brand .beat {
+  position: absolute;
+  left: 6px;
+  right: 2px;
+  bottom: 0;
   height: 2px;
-  background:
-    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.95) 50%, transparent 100%) no-repeat,
-    linear-gradient(90deg, transparent, color-mix(in srgb, var(--line, var(--sc)) 85%, transparent) 15%, color-mix(in srgb, var(--line, var(--sc)) 85%, transparent) 85%, transparent);
-  background-size: 28% 100%, 100% 100%;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--line, var(--sc)) 90%, transparent);
-  animation: heartbeat-run 1.6s linear infinite;
-  transition: box-shadow 0.3s;
+  filter: drop-shadow(0 0 3px var(--sc));
 }
-.brand.idle h1.logo::after { animation-duration: 2.6s; }
-.brand.offline h1.logo::after { animation: heartbeat-flat 1.2s ease-in-out infinite; background-size: 0 0, 100% 100%; }
-@keyframes heartbeat-run {
-  from { background-position: -40% 0, 0 0; }
-  to { background-position: 140% 0, 0 0; }
+.brand .track {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 2px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
 }
-@keyframes heartbeat-flat { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { body > header .brand h1.logo::after { animation: none; } }
+.brand .track i { position: absolute; inset: 0; will-change: transform, opacity; }
+.brand .base { background: var(--line, #3ec8ff); }
+.brand .fill { background: var(--to, transparent); transform: translateX(-100%); visibility: hidden; }
+.brand .fill::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  background: linear-gradient(90deg, transparent, #ffffff);
+}
+.brand.wiping .fill { visibility: visible; animation: beat-fill 1.1s cubic-bezier(0.45, 0, 0.25, 1) forwards; }
+.brand.wiping .fill::after { animation: beat-tip 1.1s linear forwards; }
+@keyframes beat-fill {
+  from { transform: translateX(-100%); }
+  75%, to { transform: translateX(0); }
+}
+@keyframes beat-tip {
+  0%, 68% { opacity: 1; }
+  to { opacity: 0; }
+}
+.brand .sweep {
+  right: auto;
+  width: 28%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent);
+  animation: beat-run 1.6s linear infinite;
+}
+.brand.idle .sweep { animation-duration: 2.6s; }
+.brand.offline .sweep { opacity: 0; transition: opacity 0.4s; }
+.brand.offline .base { animation: beat-flat 1.2s ease-in-out infinite; }
+@keyframes beat-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(357%); }
+}
+@keyframes beat-flat { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .brand .sweep, .brand.offline .base { animation: none; }
+}
 
 /* The header's backdrop-filter makes a stacking context; lift it over the panes so
    the settings menu is not covered. */

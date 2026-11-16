@@ -454,7 +454,7 @@ function wipeLine(color, first) {
 }
 
 brandEl.addEventListener("animationend", (ev) => {
-  if (ev.animationName !== "state-wipe") return;
+  if (ev.animationName !== "beat-fill") return;
   brandEl.style.setProperty("--line", brandEl.style.getPropertyValue("--to"));
   brandEl.classList.remove("wiping");
 });
