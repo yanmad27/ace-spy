@@ -39,12 +39,43 @@ type Release struct {
 
 type Client struct {
 	APIBase string // e.g. https://api.github.com
+	WebBase string // e.g. https://github.com
 	Repo    string // owner/name
 	HTTP    *http.Client
 }
 
 func New(repo string) *Client {
-	return &Client{APIBase: "https://api.github.com", Repo: repo, HTTP: &http.Client{Timeout: 10 * time.Minute}}
+	return &Client{APIBase: "https://api.github.com", WebBase: "https://github.com", Repo: repo, HTTP: &http.Client{Timeout: 10 * time.Minute}}
+}
+
+// LatestVersion reads the newest release's version from the github.com redirect to its
+// tag page. Unlike the REST API it has no 60-requests/hour anonymous limit, so it can be
+// polled often; call Latest only once it reports something new.
+func (c *Client) LatestVersion(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.WebBase+"/"+c.Repo+"/releases/latest", nil)
+	if err != nil {
+		return "", err
+	}
+	hc := *c.HTTP
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	resp.Body.Close()
+	if resp.StatusCode/100 != 3 {
+		return "", fmt.Errorf("GitHub latest release: HTTP %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	i := strings.LastIndex(loc, "/tag/")
+	if i < 0 {
+		return "", fmt.Errorf("GitHub latest release: unexpected redirect %q", loc)
+	}
+	v := strings.TrimPrefix(loc[i+len("/tag/"):], "v")
+	if _, ok := parse(v); !ok {
+		return "", fmt.Errorf("GitHub latest release: unexpected tag %q", v)
+	}
+	return v, nil
 }
 
 // Latest returns the newest published release.

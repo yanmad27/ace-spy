@@ -13,29 +13,47 @@ import (
 
 const (
 	updateRepo     = "yanmad27/ace-spy"
-	updateInterval = 30 * time.Minute
-	firstCheck     = 10 * time.Second
+	updateInterval = time.Minute
+	// After a failed download or a GitHub API error, wait longer before trying again.
+	updateRetry = 10 * time.Minute
+	firstCheck  = 10 * time.Second
 )
 
-// autoUpdate checks GitHub Releases periodically; when a newer version exists it
-// downloads and verifies it in the background, then swaps files and restarts.
+// autoUpdate polls for a newer release every minute (a cheap redirect check, not the
+// rate-limited API); when one exists it downloads and verifies it in the background,
+// then swaps files and restarts.
 func (a *app) autoUpdate() {
 	c := updater.New(updateRepo)
 	appDir := filepath.Dir(a.cfgPath)
 	wait := firstCheck
+	checkFailing, reportedLatest := false, ""
 	for {
 		time.Sleep(wait)
 		wait = updateInterval
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		latest, err := c.LatestVersion(ctx)
+		if err != nil {
+			cancel()
+			if !checkFailing {
+				a.asyncLogf("Update check failed: %v", err)
+			}
+			checkFailing = true
+			continue
+		}
+		checkFailing = false
+		if !updater.Newer(latest, a.version) {
+			cancel()
+			if latest != reportedLatest {
+				a.asyncLogf("Up to date (v%s, latest v%s)", a.version, latest)
+				reportedLatest = latest
+			}
+			continue
+		}
 		rel, err := c.Latest(ctx)
 		if err != nil {
 			cancel()
-			a.asyncLogf("Update check failed: %v", err)
-			continue
-		}
-		if !updater.Newer(rel.Version, a.version) {
-			cancel()
-			a.asyncLogf("Up to date (v%s, latest v%s)", a.version, rel.Version)
+			a.asyncLogf("Update v%s: %v", latest, err)
+			wait = updateRetry
 			continue
 		}
 		a.asyncLogf("Downloading update v%s…", rel.Version)
@@ -43,6 +61,7 @@ func (a *app) autoUpdate() {
 		cancel()
 		if err != nil {
 			a.asyncLogf("Update v%s failed: %v", rel.Version, err)
+			wait = updateRetry
 			continue
 		}
 		a.mw.Synchronize(func() { a.applyUpdate(rel.Version, appDir, stage) })

@@ -134,3 +134,25 @@ func TestExtractRejectsZipSlip(t *testing.T) {
 		t.Fatal("expected zip-slip rejection")
 	}
 }
+
+func TestLatestVersionFromRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/o/r/releases/latest":
+			http.Redirect(w, r, "/o/r/releases/tag/v1.2.3", http.StatusFound)
+		case "/o/bad/releases/latest":
+			http.Redirect(w, r, "/o/bad/releases/tag/nightly", http.StatusFound)
+		default:
+			t.Errorf("followed redirect to %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := &Client{WebBase: srv.URL, Repo: "o/r", HTTP: srv.Client()}
+	if v, err := c.LatestVersion(context.Background()); err != nil || v != "1.2.3" {
+		t.Fatalf("got %q, %v", v, err)
+	}
+	c.Repo = "o/bad"
+	if _, err := c.LatestVersion(context.Background()); err == nil {
+		t.Fatal("non-semver tag accepted")
+	}
+}
