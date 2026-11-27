@@ -94,7 +94,9 @@ func imagePath(cmdline string) string {
 	return cmdline
 }
 
-func anydeskProcs() ([]anydeskProc, error) {
+func anydeskProcs() ([]anydeskProc, error) { return procsByImage(anydeskImage) }
+
+func procsByImage(image string) ([]anydeskProc, error) {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return nil, err
@@ -104,7 +106,7 @@ func anydeskProcs() ([]anydeskProc, error) {
 	e.Size = uint32(unsafe.Sizeof(e))
 	var out []anydeskProc
 	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
-		if !strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), anydeskImage) {
+		if !strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), image) {
 			continue
 		}
 		p := anydeskProc{pid: e.ProcessID, session: ^uint32(0)}
@@ -188,7 +190,7 @@ func anydeskStatus() string {
 
 // anydeskStart starts the service if it is stopped and launches AnyDesk in this
 // session when none runs here. restart first ends the copies in this session.
-func anydeskStart(restart bool) string {
+func anydeskStart(restart, all bool) string {
 	var log []string
 	state, serviceExe := serviceInfo()
 	procs, err := anydeskProcs()
@@ -201,7 +203,7 @@ func anydeskStart(restart bool) string {
 	if restart {
 		killed := 0
 		for _, p := range procs {
-			if p.session != me {
+			if p.session != me && !all {
 				continue
 			}
 			if err := terminate(p.pid); err != nil {
@@ -210,8 +212,13 @@ func anydeskStart(restart bool) string {
 				killed++
 			}
 		}
-		log = append(log, fmt.Sprintf("ended %d in this session", killed))
-		time.Sleep(time.Second)
+		scope := "this session"
+		if all {
+			scope = "all sessions"
+		}
+		log = append(log, fmt.Sprintf("ended %d of %d in %s", killed, len(procs), scope))
+		time.Sleep(2 * time.Second)
+		state, _ = serviceInfo()
 	}
 
 	if state == "stopped" {
@@ -266,4 +273,55 @@ func terminate(pid uint32) error {
 	}
 	defer windows.CloseHandle(h)
 	return windows.TerminateProcess(h, 1)
+}
+
+const parsecImage = "parsecd.exe"
+
+// parsecStart launches Parsec in this session if it is not already running here.
+func parsecStart() string {
+	me := currentSession()
+	procs, err := procsByImage(parsecImage)
+	if err != nil {
+		return "list processes: " + err.Error()
+	}
+	for _, p := range procs {
+		if p.session == me {
+			return parsecStatus("already running in this session")
+		}
+	}
+	var candidates []string
+	for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)"} {
+		if dir := os.Getenv(env); dir != "" {
+			candidates = append(candidates, filepath.Join(dir, "Parsec", parsecImage))
+		}
+	}
+	if dir := os.Getenv("APPDATA"); dir != "" {
+		candidates = append(candidates, filepath.Join(dir, "Parsec", parsecImage))
+	}
+	for _, exe := range candidates {
+		if !fileExists(exe) {
+			continue
+		}
+		cmd := exec.Command(exe)
+		cmd.Dir = filepath.Dir(exe)
+		if err := cmd.Start(); err != nil {
+			return "launch " + exe + ": " + err.Error()
+		}
+		cmd.Process.Release()
+		time.Sleep(settleDelay)
+		return parsecStatus("launched " + exe)
+	}
+	return "parsecd.exe not found in " + strings.Join(candidates, ", ")
+}
+
+func parsecStatus(prefix string) string {
+	procs, _ := procsByImage(parsecImage)
+	me := currentSession()
+	own := 0
+	for _, p := range procs {
+		if p.session == me {
+			own++
+		}
+	}
+	return fmt.Sprintf("%s → parsec procs(this session=%d, other=%d)", prefix, own, len(procs)-own)
 }

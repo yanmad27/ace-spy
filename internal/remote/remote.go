@@ -61,9 +61,13 @@ func Execute(action string) string {
 	case "anydesk-status":
 		return anydeskStatus()
 	case "anydesk-start":
-		return anydeskStart(false)
+		return anydeskStart(false, false)
 	case "anydesk-restart":
-		return anydeskStart(true)
+		return anydeskStart(true, false)
+	case "anydesk-killall":
+		return anydeskStart(true, true)
+	case "parsec-start":
+		return parsecStart()
 	default:
 		return "refused: unknown action " + strconv.Quote(action)
 	}

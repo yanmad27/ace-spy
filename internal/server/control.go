@@ -26,6 +26,8 @@ var controlActions = map[string]bool{
 	"anydesk-status":  true,
 	"anydesk-start":   true,
 	"anydesk-restart": true,
+	"anydesk-killall": true,
+	"parsec-start":    true,
 }
 
 const controlSchema = `
