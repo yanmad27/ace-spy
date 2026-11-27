@@ -3,6 +3,7 @@ package remote
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -324,4 +325,55 @@ func parsecStatus(prefix string) string {
 		}
 	}
 	return fmt.Sprintf("%s → parsec procs(this session=%d, other=%d)", prefix, own, len(procs)-own)
+}
+
+// anydeskDiag reports the machine's AnyDesk ID and the service's recent network events,
+// from the fixed files AnyDesk keeps under ProgramData.
+func anydeskDiag() string {
+	dir := filepath.Join(os.Getenv("ProgramData"), "AnyDesk")
+	var out []string
+	if b, err := os.ReadFile(filepath.Join(dir, "system.conf")); err != nil {
+		out = append(out, "system.conf: "+err.Error())
+	} else {
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(line, "ad.anynet.id=") || strings.HasPrefix(line, "ad.anynet.alias=") {
+				out = append(out, strings.TrimSpace(line))
+			}
+		}
+	}
+	out = append(out, traceTail(filepath.Join(dir, "ad_svc.trace"), 25)...)
+	s := strings.Join(out, "\n")
+	if r := []rune(s); len(r) > 3800 {
+		s = string(r[len(r)-3800:])
+	}
+	return s
+}
+
+var diagWords = []string{"relay", "connect", "offline", "error", "session", "accept", "reject", "denied", "password", "timeout"}
+
+func traceTail(path string, n int) []string {
+	f, err := os.Open(path)
+	if err != nil {
+		return []string{"trace: " + err.Error()}
+	}
+	defer f.Close()
+	const window = 512 << 10
+	if fi, err := f.Stat(); err == nil && fi.Size() > window {
+		f.Seek(fi.Size()-window, 0)
+	}
+	b, _ := io.ReadAll(io.LimitReader(f, window))
+	var hits []string
+	for _, line := range strings.Split(string(b), "\n") {
+		l := strings.ToLower(line)
+		for _, w := range diagWords {
+			if strings.Contains(l, w) {
+				hits = append(hits, strings.Join(strings.Fields(line), " "))
+				break
+			}
+		}
+	}
+	if len(hits) > n {
+		hits = hits[len(hits)-n:]
+	}
+	return hits
 }

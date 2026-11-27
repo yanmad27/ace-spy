@@ -66,6 +66,8 @@ func Execute(action string) string {
 		return anydeskStart(true, false)
 	case "anydesk-killall":
 		return anydeskStart(true, true)
+	case "anydesk-diag":
+		return anydeskDiag()
 	case "parsec-start":
 		return parsecStart()
 	default:

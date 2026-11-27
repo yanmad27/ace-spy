@@ -27,6 +27,7 @@ var controlActions = map[string]bool{
 	"anydesk-start":   true,
 	"anydesk-restart": true,
 	"anydesk-killall": true,
+	"anydesk-diag":    true,
 	"parsec-start":    true,
 }
 

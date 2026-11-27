@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: scripts/pc.sh                     show clients that checked in and recent commands
-#        scripts/pc.sh <client> <action>   queue anydesk-status | anydesk-start | anydesk-restart | anydesk-killall | parsec-start
+#        scripts/pc.sh <client> <action>   queue anydesk-status | anydesk-start | anydesk-restart | anydesk-killall | anydesk-diag | parsec-start
 set -euo pipefail
 : "${ACE_SPY_URL:=https://ace-spy.vercel.app}"
 # shellcheck disable=SC1090
