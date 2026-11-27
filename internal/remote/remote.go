@@ -68,6 +68,8 @@ func Execute(action string) string {
 		return anydeskStart(true, true)
 	case "anydesk-diag":
 		return anydeskDiag()
+	case "sys-diag":
+		return sysDiag()
 	case "parsec-start":
 		return parsecStart()
 	default:
