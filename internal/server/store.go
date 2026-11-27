@@ -134,7 +134,7 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(migrationLockID)); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, schema)
+		_, err := tx.Exec(ctx, schema+controlSchema)
 		return err
 	})
 }

@@ -42,6 +42,7 @@ type Options struct {
 	Dedupe       time.Duration
 	Retention    time.Duration
 	CronSecret   string
+	ControlToken string
 }
 
 type Server struct {
@@ -68,6 +69,10 @@ func New(store *Store, static fs.FS, opts Options) http.Handler {
 	mux.Handle("GET /api/glyphs", s.viewAuth(http.HandlerFunc(s.listGlyphs)))
 	mux.HandleFunc("POST /api/glyphs/{hash}/label", s.ingestAuth(s.labelGlyph))
 	mux.HandleFunc("GET /api/cron/prune", s.cronPrune)
+	mux.HandleFunc("POST /api/checkin", s.ingestAuth(s.checkin))
+	mux.HandleFunc("POST /api/commands/{id}/result", s.ingestAuth(s.commandResult))
+	mux.HandleFunc("GET /api/control", s.controlAuth(s.controlState))
+	mux.HandleFunc("POST /api/control/commands", s.controlAuth(s.addCommand))
 	mux.HandleFunc("POST /api/samples", s.ingestAuth(s.addSample))
 	mux.HandleFunc("GET /api/samples", s.ingestAuth(s.listSamples))
 	mux.HandleFunc("GET /api/samples/{id}", s.ingestAuth(s.samplePNG))

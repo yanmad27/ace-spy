@@ -32,6 +32,10 @@ func main() {
 		Dedupe:       time.Duration(envInt("DEDUPE_SECONDS", 600)) * time.Second,
 		Retention:    time.Duration(envInt("RETENTION_DAYS", 30)) * 24 * time.Hour,
 		CronSecret:   os.Getenv("CRON_SECRET"),
+		ControlToken: os.Getenv("CONTROL_TOKEN"),
+	}
+	if opts.ControlToken != "" && len(opts.ControlToken) < 32 {
+		log.Fatal("CONTROL_TOKEN must be at least 32 characters")
 	}
 	if opts.ViewPassword == "" {
 		log.Print("WARNING: VIEW_PASSWORD not set — the viewer and read APIs are public")

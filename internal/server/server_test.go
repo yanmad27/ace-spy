@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -31,7 +32,7 @@ func newTestServer(t *testing.T, opts Options) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(store.Close)
-	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers, capturers, glyphs, captures RESTART IDENTITY`); err != nil {
+	if _, err := store.pool.Exec(ctx, `TRUNCATE messages, samples, viewers, capturers, glyphs, captures, checkins, commands RESTART IDENTITY`); err != nil {
 		t.Fatal(err)
 	}
 	opts.IngestToken = token
@@ -538,5 +539,82 @@ func TestCaptureUploadRequiresTokenAndRoundTrips(t *testing.T) {
 	got, _ := io.ReadAll(resp.Body)
 	if !bytes.Equal(got, buf.Bytes()) {
 		t.Fatalf("download mismatch: %d bytes", len(got))
+	}
+}
+
+func TestCheckinAndCommands(t *testing.T) {
+	const control = "control-token-0123456789abcdef0123"
+	srv := newTestServer(t, Options{ControlToken: control})
+	ingest, ctl := "Bearer "+token, "Bearer "+control
+
+	if r := do(t, "GET", srv.URL+"/api/control", ingest, ""); r.StatusCode != 401 {
+		t.Fatalf("ingest token on control: %d", r.StatusCode)
+	}
+	if r := do(t, "POST", srv.URL+"/api/control/commands", ctl, `{"client":"home","action":"rm -rf"}`); r.StatusCode != 400 {
+		t.Fatalf("unknown action: %d", r.StatusCode)
+	}
+	if r := do(t, "POST", srv.URL+"/api/control/commands", ctl, `{"client":"home","action":"anydesk-restart"}`); r.StatusCode != 201 {
+		t.Fatalf("queue: %d", r.StatusCode)
+	}
+
+	checkin := func(client string) []Command {
+		t.Helper()
+		req, _ := http.NewRequest("POST", srv.URL+"/api/checkin", strings.NewReader(`{"client":"`+client+`","version":"0.3.19","status":"service=running"}`))
+		req.Header.Set("Authorization", ingest)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out struct{ Commands []Command }
+		if resp.StatusCode != 200 || json.NewDecoder(resp.Body).Decode(&out) != nil {
+			t.Fatalf("checkin: %d", resp.StatusCode)
+		}
+		return out.Commands
+	}
+	if got := checkin("other"); len(got) != 0 {
+		t.Fatalf("other client got %v", got)
+	}
+	got := checkin("home")
+	if len(got) != 1 || got[0].Action != "anydesk-restart" {
+		t.Fatalf("home got %v", got)
+	}
+	if again := checkin("home"); len(again) != 0 {
+		t.Fatalf("command delivered twice: %v", again)
+	}
+	id := strconv.FormatInt(got[0].ID, 10)
+	if r := do(t, "POST", srv.URL+"/api/commands/"+id+"/result", ingest, `{"client":"other","result":"x"}`); r.StatusCode != 404 {
+		t.Fatalf("result from wrong client: %d", r.StatusCode)
+	}
+	if r := do(t, "POST", srv.URL+"/api/commands/"+id+"/result", ingest, `{"client":"home","result":"started"}`); r.StatusCode != 204 {
+		t.Fatalf("result: %d", r.StatusCode)
+	}
+	if r := do(t, "POST", srv.URL+"/api/commands/"+id+"/result", ingest, `{"client":"home","result":"again"}`); r.StatusCode != 404 {
+		t.Fatalf("second result: %d", r.StatusCode)
+	}
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/control", nil)
+	req.Header.Set("Authorization", ctl)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var state struct {
+		Clients  []Checkin
+		Commands []Command
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Clients) != 2 || len(state.Commands) != 1 || state.Commands[0].Result != "started" {
+		t.Fatalf("state: %+v", state)
+	}
+}
+
+func TestControlDisabledWithoutToken(t *testing.T) {
+	srv := newTestServer(t, Options{})
+	if r := do(t, "GET", srv.URL+"/api/control", "Bearer ", ""); r.StatusCode != 404 {
+		t.Fatalf("control without token: %d", r.StatusCode)
 	}
 }

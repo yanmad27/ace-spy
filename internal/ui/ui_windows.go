@@ -19,6 +19,7 @@ import (
 	"github.com/yanmad27/ace-spy/internal/gamewin"
 	"github.com/yanmad27/ace-spy/internal/glyphocr"
 	"github.com/yanmad27/ace-spy/internal/pusher"
+	"github.com/yanmad27/ace-spy/internal/remote"
 	"github.com/yanmad27/ace-spy/internal/runner"
 	"github.com/yanmad27/ace-spy/internal/screen"
 	"github.com/yanmad27/ace-spy/internal/tesseract"
@@ -150,6 +151,9 @@ func (a *app) run() error {
 		a.start()
 	}
 	go a.autoUpdate()
+	if a.cfg.ServerURL != "" && a.cfg.Token != "" {
+		go remote.New(a.cfg.ServerURL, a.cfg.Token, a.cfg.ClientName, a.version, a.asyncLogf).Run(context.Background())
+	}
 	a.mw.Run()
 	return nil
 }
